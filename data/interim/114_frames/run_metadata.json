@@ -1,0 +1,29 @@
+{
+  "video_metadata": {
+    "path": "C:\\Users\\PC\\footballtracking\\data\\raw\\114.mp4",
+    "fps": 25.0,
+    "frame_count": 5949,
+    "width": 1280,
+    "height": 720,
+    "duration_seconds": 237.96
+  },
+  "config": {
+    "video_path": "data/raw/114.mp4",
+    "output_dir": "data/interim/114_frames",
+    "target_sample_fps": 15,
+    "default_fps": 30,
+    "jpeg_quality": 95,
+    "min_blur_score": 80.0,
+    "min_brightness": 15.0,
+    "max_brightness": 240.0,
+    "enable_quality_filter": true,
+    "enable_enhancement": true,
+    "save_run_metadata": true
+  },
+  "sampled_frames": 2975,
+  "saved_frames": 2824,
+  "dropped_low_quality_frames": 151,
+  "elapsed_seconds": 270.26275149999856,
+  "throughput_fps": 11.007806231115115,
+  "output_dir": "C:\\Users\\PC\\footballtracking\\data\\interim\\114_frames"
+}

@@ -1,0 +1,87 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+.venv-1/
+venv/
+env/
+ENV/
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project-specific
+# Frame directories
+frames/
+**/frames/
+frame_*.jpg
+frame_*.png
+frame_*.jpeg
+
+# Video files (processed/output)
+*.mp4
+*.avi
+*.mov
+*.mkv
+!data/raw/*.mp4  # Keep raw video files
+
+# Model files
+*.pt
+!yolov8n.pt  # Keep the main model file
+
+# Output files
+output/
+results/
+logs/
+*.log
+
+# Data directories (keep raw data)
+data/processed/
+data/temp/
+cache/
+tmp/
+
+# Tracking results
+tracking_results/
+detections/
+annotations/
+
+# Jupyter notebooks
+.ipynb_checkpoints
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
