@@ -1,7 +1,7 @@
 import supervision as sv
 from ultralytics import YOLO
 import numpy as np
-
+import sys
 class FootballDetector:
     def __init__(self, model_path: str = "yolov8m.pt"):
         self.model = YOLO(model_path)
