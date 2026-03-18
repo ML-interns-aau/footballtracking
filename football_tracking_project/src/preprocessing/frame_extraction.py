@@ -1,14 +1,3 @@
-"""Extract frames from a video at a target FPS.
-
-Usage:
-	python src/preprocessing/frame_extraction.py \
-		--input data/raw_videos/clean-match.mp4 \
-		--output data/frames \
-		--fps 15
-"""
-
-
-
 import argparse
 from pathlib import Path
 
@@ -32,7 +21,6 @@ def extract_frames(video_path: Path, output_dir: Path, target_fps: float) -> int
 	frame_index: int = 0
 	saved_count: int = 0
 
-	# Save roughly every Nth frame to reach the desired sampling frequency.
 	frame_step = max(1, round(source_fps / target_fps))
 
 	while True:
@@ -67,4 +55,3 @@ def main() -> None:
 
 if __name__ == "__main__":
 	main()
-

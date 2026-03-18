@@ -22,9 +22,7 @@ Thumbs.db
 *.engine
 
 # Runtime data and outputs
-data/frames/
-data/processed/
-data/raw_videos/
+data/
 results/
 
 # Notebook checkpoints

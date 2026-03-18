@@ -4,39 +4,27 @@ from pathlib import Path
 
 class DataExporter:
     def __init__(self, output_dir: str):
-        """Initialize the data exporter for frame-by-frame stats and pass detection."""
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         self.csv_path = self.output_dir / "analytics.csv"
         self.json_path = self.output_dir / "analytics.json"
         
-        self.frame_data = [] # List of dicts for JSON
+        self.frame_data = []
         
-        # Initialize CSV
         with open(self.csv_path, mode='w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(["frame", "object_id", "class", "team", "x_m", "y_m", "speed_kmh", "distance_m"])
             
-        # Pass detection state
-        self.last_ball_possessor = None # (player_id, frame_id)
-        self.passes = [] # List of completed passes
+        self.last_ball_possessor = None
+        self.passes = []
 
     def log_frame(self, frame_idx: int, frame_objects: list[dict]):
-        """Log all objects detected and tracked in a single frame.
-        
-        Args:
-            frame_idx: The current frame number
-            frame_objects: List of dicts containing keys: 
-                id, class, team, x_m, y_m, speed, distance
-        """
-        # Append to JSON structure
         self.frame_data.append({
             "frame": frame_idx,
             "objects": frame_objects
         })
         
-        # Append to CSV
         with open(self.csv_path, mode='a', newline='') as f:
             writer = csv.writer(f)
             for obj in frame_objects:
@@ -52,17 +40,9 @@ class DataExporter:
                 ])
 
     def update_passes(self, frame_idx: int, ball_pos: tuple[float, float], player_positions: dict[int, tuple[float, float]]):
-        """Detect possession and passes.
-        
-        Args:
-            frame_idx: Current frame
-            ball_pos: (x_m, y_m) coordinates of the ball
-            player_positions: Dict mapping player_id -> (x_m, y_m)
-        """
         if ball_pos == (0.0, 0.0):
-            return # Ball not visible or invalid coords
+            return
             
-        # Find closest player to the ball
         closest_dist = float('inf')
         closest_player_id = None
         
@@ -72,8 +52,7 @@ class DataExporter:
                 closest_dist = dist
                 closest_player_id = p_id
                 
-        # Assume possession if distance is < 1.0 meter
-        possession_radius = 1.0 # meters
+        possession_radius = 1.0
         
         if closest_dist <= possession_radius:
             current_possessor = closest_player_id
@@ -81,9 +60,7 @@ class DataExporter:
             if self.last_ball_possessor is not None:
                 last_pid, last_frame = self.last_ball_possessor
                 
-                # Check if possession changed and at least 3 frames passed (to avoid instant flickers)
                 if current_possessor != last_pid and (frame_idx - last_frame) > 3:
-                    # A pass occurred!
                     pass_record = {
                         "passer_id": last_pid,
                         "receiver_id": current_possessor,
@@ -96,7 +73,6 @@ class DataExporter:
             self.last_ball_possessor = (current_possessor, frame_idx)
 
     def finalize(self):
-        """Save the accumulated JSON file including final pass list."""
         def convert_numpy(obj):
             import numpy as np
             if isinstance(obj, (np.float32, np.float64)):
@@ -117,7 +93,6 @@ class DataExporter:
             "frames": self.frame_data
         }
         
-        # Deep convert any numpy types to python primitives
         final_data = convert_numpy(final_data)
 
         with open(self.json_path, 'w') as f:
