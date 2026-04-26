@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Large model artifacts
+*.pt
+*.onnx
+*.engine
+
+# Runtime data and outputs
+data/
+results/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
