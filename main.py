@@ -1,23 +1,24 @@
-import cv2
 import argparse
-import numpy as np
 from pathlib import Path
-from tqdm import tqdm
-
-from src.pipeline.detector import FootballDetector
-from src.pipeline.tracker import FootballTracker
-from src.pipeline.team_classifier import TeamClassifier
-from src.pipeline.camera_motion import CameraMotionEstimator
-from src.pipeline.pitch_mapper import PitchMapper
-from src.pipeline.speed_estimator import SpeedEstimator
-from src.pipeline.ball_tracker import BallTracker
-from src.pipeline.data_exporter import DataExporter
-from src.pipeline.heatmap_analyzer import HeatmapAnalyzer
-from src.pipeline.visualizer import PipelineVisualizer
-from src.pipeline.tracking_csv_builder import TrackingCSVBuilder
 
 
 def main(args):
+    import cv2
+    import numpy as np
+    from tqdm import tqdm
+
+    from src.pipeline.detector import FootballDetector
+    from src.pipeline.tracker import FootballTracker
+    from src.pipeline.team_classifier import TeamClassifier
+    from src.pipeline.camera_motion import CameraMotionEstimator
+    from src.pipeline.pitch_mapper import PitchMapper
+    from src.pipeline.speed_estimator import SpeedEstimator
+    from src.pipeline.ball_tracker import BallTracker
+    from src.pipeline.data_exporter import DataExporter
+    from src.pipeline.heatmap_analyzer import HeatmapAnalyzer
+    from src.pipeline.visualizer import PipelineVisualizer
+    from src.pipeline.tracking_csv_builder import TrackingCSVBuilder
+
     input_path = Path(args.input)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -46,7 +47,7 @@ def main(args):
     #  Component initialisation
     # ------------------------------------------------------------------ #
     print("Initializing components...")
-    detector       = FootballDetector(model_path="yolov8m_fixed.pt", conf=0.30, iou=0.40)
+    detector       = FootballDetector(model_path="yolov8n.pt", conf=0.30, iou=0.40)
     tracker        = FootballTracker(track_thresh=0.20, track_buffer=60, match_thresh=0.80)
     team_classifier = TeamClassifier(n_teams=2, history_len=15, refit_interval=150)
     ball_tracker   = BallTracker(max_trail=25, max_missed=30)
@@ -197,10 +198,18 @@ def main(args):
     print(f"   Data exports     : {output_dir}")
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Football Analytics Pipeline - Improved")
+    parser.add_argument("--input", type=str, required=True, help="Path to input video")
+    parser.add_argument("--output_dir", type=str, default="results", help="Output directory")
+    parser.add_argument("--max_frames", type=int, default=0, help="Limit processing to N frames (0=all)")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Football Analytics Pipeline — Improved")
     parser.add_argument("--input",      type=str, required=True, help="Path to input video")
     parser.add_argument("--output_dir", type=str, default="results", help="Output directory")
     parser.add_argument("--max_frames", type=int, default=0, help="Limit processing to N frames (0=all)")
-    args = parser.parse_args()
+    args = parse_args()
     main(args)

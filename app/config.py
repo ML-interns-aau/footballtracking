@@ -15,7 +15,7 @@ INSIGHTS_DIR    = os.path.join(DATA_DIR, "insights")
 # ── Model ────────────────────────────────────────────────────────────────────
 _default_model = os.path.join(PROJECT_ROOT, "models", "best.pt")
 # If a compatible weight exists at the project root (used by main.py), prefer it.
-_root_model = os.path.join(PROJECT_ROOT, "yolov8m_fixed.pt")
+_root_model = os.path.join(PROJECT_ROOT, "yolov8n.pt")
 MODEL_PATH = _root_model if os.path.exists(_root_model) else _default_model
 
 # ── Video formats ────────────────────────────────────────────────────────────

@@ -304,9 +304,11 @@ class TrackingCSVBuilder:
         else:
             ball_pos = pd.DataFrame(columns=["frame", "_ball_x", "_ball_y"]).set_index("frame")
         df = df.merge(ball_pos, on="frame", how="left")
-        df["distance_to_ball"] = np.sqrt(
-            (df["pitch_x"] - df["_ball_x"]) ** 2 +
-            (df["pitch_y"] - df["_ball_y"]) ** 2
+        for col in ["pitch_x", "pitch_y", "_ball_x", "_ball_y"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df["distance_to_ball"] = np.hypot(
+            df["pitch_x"] - df["_ball_x"],
+            df["pitch_y"] - df["_ball_y"],
         ).fillna(-1.0)
 
         df["possession"] = -1

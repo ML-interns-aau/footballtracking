@@ -59,7 +59,7 @@ def main(args):
 
     # ---- Initialise components ----
     print("[INFO] Initializing components...")
-    detector        = FootballDetector(model_path="yolov8m_fixed.pt", conf=0.30, iou=0.40)
+    detector        = FootballDetector(model_path="yolov8n.pt", conf=0.30, iou=0.40)
     tracker         = FootballTracker(track_thresh=0.20, track_buffer=60, match_thresh=0.80)
     team_classifier = TeamClassifier(n_teams=2, history_len=15, refit_interval=150)
     ball_tracker    = BallTracker(max_trail=25, max_missed=30)

@@ -27,3 +27,4 @@ results/
 
 # Notebook checkpoints
 .ipynb_checkpoints/
+.env
