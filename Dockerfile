@@ -33,6 +33,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Install runtime dependencies only
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.10 \
+    python3-pip \
     libgl1-mesa-glx \
     libglib2.0-0 \
     libsm6 \
@@ -41,14 +42,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     curl \
     && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    && apt-get clean \
+    && ln -sf /usr/bin/python3.10 /usr/bin/python3
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser
 
 # Copy Python packages from builder
 COPY --from=builder /root/.local /home/appuser/.local
-ENV PATH=/home/appuser/.local/bin:$PATH
+ENV PATH=/home/appuser/.local/bin:/usr/bin:$PATH
 
 # Set working directory
 WORKDIR /app
@@ -61,6 +63,9 @@ COPY --chown=appuser:appuser main.py .
 # Create data directories and set permissions
 RUN mkdir -p data/raw data/processed data/insights data/annotations \
     && chown -R appuser:appuser /app
+
+# Override NVIDIA entrypoint to prevent GPU initialization errors
+ENTRYPOINT []
 
 USER appuser
 
