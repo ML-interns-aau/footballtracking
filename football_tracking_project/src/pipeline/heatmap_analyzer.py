@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 from pathlib import Path
-
+import pandas as pd
 class HeatmapAnalyzer:
     def __init__(self, pitch_width: int = 105, pitch_height: int = 68, resolution: float = 1.0):
         self.w = pitch_width

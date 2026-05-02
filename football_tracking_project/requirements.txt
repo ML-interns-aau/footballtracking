@@ -6,3 +6,5 @@ ultralytics
 scikit-learn
 matplotlib
 requests
+scipy
+pandas

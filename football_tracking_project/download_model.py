@@ -9,7 +9,7 @@ def download_file(url, local_filename):
         total_length = r.headers.get('content-length')
         
         with open(local_filename, 'wb') as f:
-            if total_length is None:
+            if total_length is None: 
                 f.write(r.content)
             else:
                 dl = 0
