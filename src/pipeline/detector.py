@@ -12,7 +12,7 @@ class FootballDetector:
     - Returns player and ball detections separately for clean downstream use
     """
 
-    def __init__(self, model_path: str = "yolov8m_fixed.pt", conf: float = 0.30, iou: float = 0.40):
+    def __init__(self, model_path: str = "yolov8n.pt", conf: float = 0.30, iou: float = 0.40):
         self.model = YOLO(model_path)
         self.CLASS_NAMES_DICT = self.model.model.names
         self.conf = conf

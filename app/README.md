@@ -22,7 +22,7 @@ pip install streamlit
 3. Ensure you have model weights and at least one video in `data/raw/`:
 
 - Model path used by the app: `models/best.pt` (configured in `app/config.py`).
-- The repository also contains `yolov8m_fixed.pt` for the `main.py` pipeline.
+- The repository also contains `yolov8n.pt` for the `main.py` pipeline.
 
 4. Run the Streamlit app from the project root:
 

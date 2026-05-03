@@ -7,7 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from app.config import INSIGHTS_DIR, ANNOTATIONS_DIR, PROCESSED_DIR
+from app.config import INSIGHTS_DIR, PROCESSED_DIR
 from app.utils import (
     page_header, render_pipeline, nav_button, metric_card,
     ACCENT, TEXT_PRIMARY, TEXT_MUTED, BG_CARD, BG_DARK,
@@ -49,15 +49,14 @@ def _layout(**overrides):
 
 
 def _load_csv(name):
-    for d in [INSIGHTS_DIR, ANNOTATIONS_DIR]:
-        p = os.path.join(d, name)
-        if os.path.exists(p):
-            return pd.read_csv(p)
+    p = os.path.join(INSIGHTS_DIR, name)
+    if os.path.exists(p):
+        return pd.read_csv(p)
     return None
 
 
 def _load_summary():
-    p = os.path.join(INSIGHTS_DIR, "pipeline_summary.json")
+    p = os.path.join(INSIGHTS_DIR, "analytics.json")
     if os.path.exists(p):
         with open(p) as f:
             return json.load(f)
@@ -79,21 +78,22 @@ def render():
     page_header("Results", "Possession, player stats, speed analysis, and exports.")
     render_pipeline(done_up_to=3)
 
-    player_df     = _load_csv("player_summary.csv")
-    poss_df       = _load_csv("possession_summary.csv")
-    track_df      = _load_csv("tracking_enriched.csv")
+    # TODO: player_summary.csv and possession_summary.csv not yet implemented
+    player_df     = None  # _load_csv("player_summary.csv") - coming soon
+    poss_df       = None  # _load_csv("possession_summary.csv") - coming soon
+    track_df      = _load_csv("tracking_output.csv")  # renamed from tracking_enriched.csv
     summary       = _load_summary()
     tracked_video = _find_tracked_video()
 
-    if player_df is None and poss_df is None and track_df is None:
+    if track_df is None and not tracked_video:
         st.warning("No results found. Run the analysis pipeline first.")
         _, r = st.columns([3, 1])
         with r:
             nav_button("Go to Analysis", "Analysis")
         return
 
-    # Summary metrics
-    if summary:
+    # Summary metrics (from analytics.json if available)
+    if summary and isinstance(summary, dict):
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.markdown(metric_card("Video", summary.get("video", "—")), unsafe_allow_html=True)
@@ -312,9 +312,9 @@ def render():
     # DOWNLOADS
     with tab_dl:
         downloads = [
-            ("Player Summary", "player_summary.csv", player_df, "Per-player stats: speed, possession, team."),
-            ("Possession", "possession_summary.csv", poss_df, "Team-level possession percentages."),
-            ("Tracking Data", "tracking_enriched.csv", track_df, "Frame-by-frame tracking with velocity."),
+            ("Player Summary", "player_summary.csv", player_df, "Per-player stats: speed, possession, team. (Coming soon)"),
+            ("Possession", "possession_summary.csv", poss_df, "Team-level possession percentages. (Coming soon)"),
+            ("Tracking Data", "tracking_output.csv", track_df, "Frame-by-frame tracking with velocity."),
         ]
         cols = st.columns(3)
         for col, (title, fname, df, desc) in zip(cols, downloads):
@@ -340,9 +340,9 @@ def render():
                                    file_name=os.path.basename(tracked_video),
                                    mime="video/mp4", use_container_width=True, type="primary")
         if summary:
-            st.download_button("⬇  Download Pipeline Summary (JSON)",
+            st.download_button("⬇  Download Analytics (JSON)",
                                data=json.dumps(summary, indent=2),
-                               file_name="pipeline_summary.json",
+                               file_name="analytics.json",
                                mime="application/json", use_container_width=True)
 
     st.markdown("---")

@@ -42,7 +42,8 @@ def _full_pipeline(raw_video: str, progress, status):
 
     # Build args namespace expected by main.main
     from types import SimpleNamespace
-    out_dir = os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), "results")
+    from app.config import INSIGHTS_DIR
+    out_dir = INSIGHTS_DIR  # Pipeline outputs go to data/insights/
     args = SimpleNamespace(input=raw_video, output_dir=out_dir, max_frames=0)
 
     status.text("Running external pipeline (this may take a while)...")
@@ -214,6 +215,7 @@ def render():
                 st.session_state.analysis_done = True
                 st.session_state.analysis_results = result
                 st.session_state.tracked_video = result.get("output_video")
+                st.session_state.processed_video = raw_video  # Mark preprocessing as done
 
                 status.empty()
                 st.success("Pipeline complete. Redirecting to results...")

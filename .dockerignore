@@ -1,0 +1,52 @@
+# Git
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data and outputs (mounted as volumes)
+data/
+results/
+
+# Large models (downloaded at runtime or mounted)
+*.pt
+*.onnx
+*.engine
+models/
+
+# Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Environment
+.env
+.env.*
+
+# Documentation
+*.md
+!README.md
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
