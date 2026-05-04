@@ -1,0 +1,10 @@
+opencv-python
+numpy
+tqdm
+supervision
+ultralytics
+scikit-learn
+matplotlib
+requests
+scipy
+pandas
