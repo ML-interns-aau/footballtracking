@@ -4,6 +4,14 @@ import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 
+from app.config import (
+    MODEL_PATH,
+    DEFAULT_CONF,
+    DEFAULT_IOU,
+    DEFAULT_IMGSZ,
+    DEFAULT_TARGET_FPS,
+    DEFAULT_RESIZE_W,
+)
 from src.pipeline.detector import FootballDetector
 from src.pipeline.tracker import FootballTracker
 from src.pipeline.team_classifier import TeamClassifier
@@ -17,10 +25,34 @@ from src.pipeline.visualizer import PipelineVisualizer
 from src.pipeline.tracking_csv_builder import TrackingCSVBuilder
 
 
+def _resize_frame(frame, target_width):
+    if not target_width or target_width <= 0:
+        return frame
+
+    height, width = frame.shape[:2]
+    if width == target_width:
+        return frame
+
+    scale = target_width / float(width)
+    target_height = max(1, int(round(height * scale)))
+    return cv2.resize(frame, (target_width, target_height), interpolation=cv2.INTER_AREA)
+
+
 def main(args):
     input_path = Path(args.input)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    target_fps = float(getattr(args, "target_fps", DEFAULT_TARGET_FPS) or 0)
+    resize_width = int(getattr(args, "resize_width", DEFAULT_RESIZE_W) or 0)
+    conf = float(getattr(args, "conf", DEFAULT_CONF))
+    iou = float(getattr(args, "iou", DEFAULT_IOU))
+    imgsz = int(getattr(args, "imgsz", DEFAULT_IMGSZ))
+    device = getattr(args, "device", None)
+    model_path = getattr(args, "model_path", MODEL_PATH)
+
+    if isinstance(device, str) and device.isdigit():
+        device = int(device)
 
     cap = cv2.VideoCapture(str(input_path))
     if not cap.isOpened():
@@ -31,15 +63,34 @@ def main(args):
     fps    = cap.get(cv2.CAP_PROP_FPS)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
+    if resize_width > 0:
+        scale = resize_width / float(width)
+        width = resize_width
+        height = max(1, int(round(height * scale)))
+
+    frame_step = 1
+    effective_fps = fps
+    if target_fps > 0 and fps > 0:
+        frame_step = max(1, round(fps / target_fps))
+        effective_fps = fps / frame_step
+
     out_video_path = output_dir / "annotated_football_analysis.mp4"
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    out = cv2.VideoWriter(str(out_video_path), fourcc, fps, (width, height))
+    out = cv2.VideoWriter(str(out_video_path), fourcc, effective_fps, (width, height))
 
     ret, initial_frame = cap.read()
     if not ret:
         raise ValueError("Failed to read first frame.")
 
-    detector       = FootballDetector(model_path="yolov8m_fixed.pt", conf=0.30, iou=0.40)
+    initial_frame = _resize_frame(initial_frame, resize_width)
+
+    detector       = FootballDetector(
+        model_path=model_path,
+        conf=conf,
+        iou=iou,
+        imgsz=imgsz,
+        device=device,
+    )
     tracker        = FootballTracker(track_thresh=0.20, track_buffer=60, match_thresh=0.80)
     team_classifier = TeamClassifier(n_teams=2, history_len=15, refit_interval=150)
     ball_tracker   = BallTracker(max_trail=25, max_missed=30)
@@ -51,21 +102,31 @@ def main(args):
     src_pts = [[0, height], [width, height], [width * 0.75, height * 0.3], [width * 0.25, height * 0.3]]
     dst_pts = [[0, 68],     [105, 68],       [105, 0],                       [0, 0]]
     pitch_mapper    = PitchMapper(src_points=src_pts, dst_points=dst_pts)
-    speed_estimator = SpeedEstimator(fps=fps, pitch_mapper=pitch_mapper, window_size=8)
-    csv_builder     = TrackingCSVBuilder(pitch_mapper=pitch_mapper, fps=fps)
+    speed_estimator = SpeedEstimator(fps=effective_fps, pitch_mapper=pitch_mapper, window_size=8)
+    csv_builder     = TrackingCSVBuilder(pitch_mapper=pitch_mapper, fps=effective_fps)
 
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
-    max_frames = args.max_frames if args.max_frames > 0 else total_frames
-    frame_idx = 0
-    pbar = tqdm(total=max_frames, unit="frame")
+    max_frames = args.max_frames if args.max_frames > 0 else 0
+    estimated_frames = total_frames // frame_step if total_frames > 0 else 0
+    if max_frames > 0:
+        estimated_frames = min(max_frames, estimated_frames) if estimated_frames > 0 else max_frames
+    pbar = tqdm(total=estimated_frames or None, unit="frame")
 
+    source_frame_idx = 0
+    processed_frame_idx = 0
     while cap.isOpened():
-        if frame_idx >= max_frames:
+        if max_frames > 0 and processed_frame_idx >= max_frames:
             break
         ret, frame = cap.read()
         if not ret:
             break
+
+        if source_frame_idx % frame_step != 0:
+            source_frame_idx += 1
+            continue
+
+        frame = _resize_frame(frame, resize_width)
 
         detections = detector.detect(frame)
         tracked = tracker.update(detections)
@@ -89,13 +150,13 @@ def main(args):
 
         if player_pixels:
             speed_estimator.estimate_speed(
-                frame_idx, player_tracker_ids,
+                processed_frame_idx, player_tracker_ids,
                 np.array(player_pixels), cam_dx, cam_dy
             )
 
         ball_pos_m = pitch_mapper.transform_point((ball_cx, ball_cy))
         speed_estimator.estimate_speed(
-            frame_idx,
+            processed_frame_idx,
             [BallTracker.BALL_ID],
             np.array([[ball_cx, ball_cy]]),
             cam_dx, cam_dy
@@ -132,9 +193,9 @@ def main(args):
                     "speed": round(ball_speed_kmh, 2),
                 })
 
-        data_exporter.log_frame(frame_idx, frame_objs)
-        data_exporter.update_passes(frame_idx, ball_pos_m, player_positions)
-        csv_builder.add_frame(frame_idx, tracked, team_ids)
+        data_exporter.log_frame(processed_frame_idx, frame_objs)
+        data_exporter.update_passes(processed_frame_idx, ball_pos_m, player_positions)
+        csv_builder.add_frame(processed_frame_idx, tracked, team_ids)
 
         annotated = visualizer.annotate_frame(
             frame          = frame,
@@ -144,11 +205,12 @@ def main(args):
             ball_trail     = ball_tracker.get_trail(),
             ball_speed_kmh = ball_speed_kmh,
             ball_is_predicted = ball_predicted,
-            frame_idx      = frame_idx,
+            frame_idx      = processed_frame_idx,
         )
         out.write(annotated)
 
-        frame_idx += 1
+        processed_frame_idx += 1
+        source_frame_idx += 1
         pbar.update(1)
 
     pbar.close()
@@ -168,5 +230,12 @@ if __name__ == "__main__":
     parser.add_argument("--input",      type=str, required=True)
     parser.add_argument("--output_dir", type=str, default="results")
     parser.add_argument("--max_frames", type=int, default=0)
+    parser.add_argument("--target_fps", type=float, default=DEFAULT_TARGET_FPS)
+    parser.add_argument("--resize_width", type=int, default=DEFAULT_RESIZE_W)
+    parser.add_argument("--conf", type=float, default=DEFAULT_CONF)
+    parser.add_argument("--iou", type=float, default=DEFAULT_IOU)
+    parser.add_argument("--imgsz", type=int, default=DEFAULT_IMGSZ)
+    parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--model_path", type=str, default=MODEL_PATH)
     args = parser.parse_args()
     main(args)

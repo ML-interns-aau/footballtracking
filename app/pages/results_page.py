@@ -76,7 +76,7 @@ def _find_tracked_video():
 
 def render():
     page_header("Results", "Possession, player stats, speed analysis, and exports.")
-    render_pipeline(done_up_to=3)
+    # render_pipeline(done_up_to=3)
 
     # TODO: player_summary.csv and possession_summary.csv not yet implemented
     player_df     = None  # _load_csv("player_summary.csv") - coming soon

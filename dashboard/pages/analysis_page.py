@@ -76,7 +76,7 @@ def render():
     if analysis_done:
         done_up_to = 3
 
-    render_pipeline(done_up_to=done_up_to)
+    # render_pipeline(done_up_to=done_up_to)
     st.markdown("---")
 
     raw_video = st.session_state.get("uploaded_video")

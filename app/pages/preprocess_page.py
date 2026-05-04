@@ -26,7 +26,7 @@ def render():
                 "Preprocessing runs automatically when you start analysis. Adjust settings here.")
 
     done = st.session_state.get("processed_video") is not None
-    render_pipeline(active=-1, done_up_to=1 if done else 0)
+    # render_pipeline(active=-1, done_up_to=1 if done else 0)
 
     raw = st.session_state.get("uploaded_video")
     proc = st.session_state.get("processed_video")

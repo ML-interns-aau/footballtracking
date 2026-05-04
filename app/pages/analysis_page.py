@@ -41,10 +41,20 @@ def _full_pipeline(raw_video: str, progress, status):
         raise RuntimeError("Unable to import project pipeline (main.py): " + str(e))
 
     # Build args namespace expected by main.main
-    from types import SimpleNamespace
     from app.config import INSIGHTS_DIR
     out_dir = INSIGHTS_DIR  # Pipeline outputs go to data/insights/
-    args = SimpleNamespace(input=raw_video, output_dir=out_dir, max_frames=0)
+    args = SimpleNamespace(
+        input=raw_video,
+        output_dir=out_dir,
+        max_frames=st.session_state.get("analysis_max_frames", 0),
+        target_fps=st.session_state.get("analysis_target_fps", DEFAULT_TARGET_FPS),
+        resize_width=st.session_state.get("analysis_resize_width", DEFAULT_RESIZE_W),
+        conf=st.session_state.get("analysis_conf", DEFAULT_CONF),
+        iou=st.session_state.get("analysis_iou", DEFAULT_IOU),
+        imgsz=st.session_state.get("analysis_imgsz", DEFAULT_IMGSZ),
+        device=st.session_state.get("analysis_device", None),
+        model_path=MODEL_PATH,
+    )
 
     status.text("Running external pipeline (this may take a while)...")
     # main.main runs a CPU/GPU heavy loop; we call it directly. Progress reporting
@@ -71,7 +81,7 @@ def render():
     if analysis_done:
         done_up_to = 3
 
-    render_pipeline(done_up_to=done_up_to)
+    # render_pipeline(done_up_to=done_up_to)
     st.markdown("---")
 
     raw_video = st.session_state.get("uploaded_video")
@@ -142,11 +152,98 @@ def render():
             "use Google Colab with a T4 GPU."
         )
 
+    st.markdown("##### Pipeline Settings")
+    settings_row_1, settings_row_2 = st.columns(2)
+
+    with settings_row_1:
+        default_target_fps = int(st.session_state.get("target_fps", DEFAULT_TARGET_FPS))
+        target_fps = st.slider(
+            "Target FPS",
+            min_value=5,
+            max_value=60,
+            value=default_target_fps,
+            step=1,
+            key="analysis_target_fps_ui",
+            help="Lower values sample fewer frames and run faster."
+        )
+        resize_width = st.select_slider(
+            "Resize Width",
+            options=[640, 960, 1280, 1920],
+            value=st.session_state.get("resize_width", DEFAULT_RESIZE_W),
+            key="analysis_resize_width_ui",
+            help="Frames are resized before detection and tracking."
+        )
+
+    with settings_row_2:
+        conf = st.slider(
+            "Detection Confidence",
+            min_value=0.05,
+            max_value=0.95,
+            value=float(DEFAULT_CONF),
+            step=0.01,
+            key="analysis_conf_ui",
+            help="Higher values reduce false positives but may miss players or the ball."
+        )
+        iou = st.slider(
+            "NMS IOU Threshold",
+            min_value=0.05,
+            max_value=0.95,
+            value=float(DEFAULT_IOU),
+            step=0.01,
+            key="analysis_iou_ui",
+            help="Higher values keep more overlapping detections."
+        )
+
+    imgsz = st.select_slider(
+        "Inference Image Size",
+        options=[640, 960, 1280, 1536],
+        value=DEFAULT_IMGSZ,
+        key="analysis_imgsz_ui",
+        help="Larger sizes can improve small-object detection at the cost of speed."
+    )
+
+    device_options = ["Auto", "CPU"]
+    if has_gpu:
+        device_options.append("GPU (cuda:0)")
+    device_choice = st.radio(
+        "Compute Device",
+        options=device_options,
+        index=0,
+        horizontal=True,
+        key="analysis_device_ui",
+        help="Auto uses GPU when available, otherwise CPU."
+    )
+
+    st.markdown("##### Sample Processing")
+    max_frames_to_process = st.slider(
+        "Process only a sample (0 = full video)",
+        min_value=0,
+        max_value=max(total, 500) if total > 0 else 500,
+        value=st.session_state.get("max_frames_to_process", 50),
+        step=10,
+        key="max_frames_to_process",
+        help="Process a small sample to see results quickly."
+    )
+
+    device_value = None
+    if device_choice == "CPU":
+        device_value = "cpu"
+    elif device_choice.startswith("GPU"):
+        device_value = 0
+
+    st.session_state.analysis_target_fps = target_fps
+    st.session_state.analysis_resize_width = resize_width
+    st.session_state.analysis_conf = conf
+    st.session_state.analysis_iou = iou
+    st.session_state.analysis_imgsz = imgsz
+    st.session_state.analysis_device = device_value
+    st.session_state.analysis_max_frames = max_frames_to_process
+
     # ── Model check ──────────────────────────────────────────────────────────
     if not os.path.exists(MODEL_PATH):
         st.error(
-            "Model weights not found at models/best.pt. "
-            "Place the trained YOLO model in the models/ directory."
+            "Model weights not found. "
+            "Place the trained YOLO model in the models/ directory or project root."
         )
         return
 

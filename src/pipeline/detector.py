@@ -12,23 +12,35 @@ class FootballDetector:
     - Returns player and ball detections separately for clean downstream use
     """
 
-    def __init__(self, model_path: str = "yolov8m_fixed.pt", conf: float = 0.30, iou: float = 0.40):
+    def __init__(
+        self,
+        model_path: str = "yolov8m_fixed.pt",
+        conf: float = 0.30,
+        iou: float = 0.40,
+        imgsz: int = 960,
+        device=None,
+    ):
         self.model = YOLO(model_path)
         self.CLASS_NAMES_DICT = self.model.model.names
         self.conf = conf
         self.iou = iou
+        self.imgsz = imgsz
+        self.device = device
 
     def detect(self, frame: np.ndarray) -> sv.Detections:
         """Run inference and return all detections (persons + ball)."""
-        results = self.model(
-            frame,
-            classes=[0, 32],        # 0=person, 32=sports ball
+        kwargs = dict(
+            classes=[0, 32],  # 0=person, 32=sports ball
             conf=self.conf,
             iou=self.iou,
-            imgsz=960,              # Higher resolution → better small-object recall (960 balances speed & accuracy)
-            agnostic_nms=True,      # Merge overlapping boxes across classes
+            imgsz=self.imgsz,
+            agnostic_nms=True,
             verbose=False,
-        )[0]
+        )
+        if self.device is not None:
+            kwargs["device"] = self.device
+
+        results = self.model(frame, **kwargs)[0]
         detections = sv.Detections.from_ultralytics(results)
         return detections
 
