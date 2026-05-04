@@ -8,26 +8,28 @@ import os
 from pathlib import Path
 
 
+from src.pipeline.output_schema import OutputFiles, AnalyticsCSVColumns, TrackingCSVColumns, PlayerSummaryCSVColumns, PossessionSummaryCSVColumns
+
 def post_process(results_dir, insights_dir, video_name="video.mp4"):
     results_dir  = Path(results_dir)
     insights_dir = Path(insights_dir)
     insights_dir.mkdir(parents=True, exist_ok=True)
 
-    analytics_path = results_dir / "analytics.csv"
-    tracking_path  = results_dir / "tracking_output.csv"
+    analytics_path = results_dir / OutputFiles.ANALYTICS
+    tracking_path  = results_dir / OutputFiles.TRACKING
 
     if not analytics_path.exists():
         raise FileNotFoundError(
-            f"analytics.csv not found in {results_dir}. "
+            f"{OutputFiles.ANALYTICS} not found in {results_dir}. "
             "The pipeline may not have completed successfully."
         )
 
     df = pd.read_csv(analytics_path)
 
-    required_cols = {"frame", "object_id", "team", "speed_kmh"}
+    required_cols = {AnalyticsCSVColumns.FRAME, AnalyticsCSVColumns.OBJECT_ID, AnalyticsCSVColumns.TEAM, AnalyticsCSVColumns.SPEED_KMH}
     missing = required_cols - set(df.columns)
     if missing:
-        raise ValueError(f"analytics.csv is missing columns: {missing}")
+        raise ValueError(f"{OutputFiles.ANALYTICS} is missing columns: {missing}")
 
     # ── Team mapping ──────────────────────────────────────────────────
     def map_team(team_str):
@@ -37,16 +39,16 @@ def post_process(results_dir, insights_dir, video_name="video.mp4"):
         if "referee" in t:  return -2
         return -1
 
-    df["team_id"]  = df["team"].apply(map_team)
-    total_frames   = int(df["frame"].nunique()) if not df.empty else 0
+    df["team_id"]  = df[AnalyticsCSVColumns.TEAM].apply(map_team)
+    total_frames   = int(df[AnalyticsCSVColumns.FRAME].nunique()) if not df.empty else 0
 
     # ── Player summary ────────────────────────────────────────────────
     player_stats = []
     if not df.empty:
-        for (obj_id, team_id), group in df.groupby(["object_id", "team_id"], dropna=True):
+        for (obj_id, team_id), group in df.groupby([AnalyticsCSVColumns.OBJECT_ID, "team_id"], dropna=True):
             if pd.isna(obj_id) or str(obj_id).strip() == "" or team_id == -2:
                 continue
-            speeds = group["speed_kmh"].dropna()
+            speeds = group[AnalyticsCSVColumns.SPEED_KMH].dropna()
             player_stats.append({
                 "object_id":      int(float(obj_id)),
                 "team_id":        int(team_id),
@@ -90,22 +92,22 @@ def post_process(results_dir, insights_dir, video_name="video.mp4"):
                 player_df.loc[mask, "poss_pct"] = round(row["possession_pct"] / n, 2)
 
     # ── Save CSVs ─────────────────────────────────────────────────────
-    player_df.to_csv(insights_dir / "player_summary.csv", index=False)
-    poss_df.to_csv(insights_dir / "possession_summary.csv", index=False)
+    player_df.to_csv(insights_dir / OutputFiles.PLAYER_SUMMARY, index=False)
+    poss_df.to_csv(insights_dir / OutputFiles.POSSESSION_SUMMARY, index=False)
 
     if tracking_path.exists():
         track_df = pd.read_csv(tracking_path)
         rename_map = {}
-        if "frame"    in track_df.columns: rename_map["frame"]    = "frame_id"
-        if "track_id" in track_df.columns: rename_map["track_id"] = "object_id"
-        if "center_x" in track_df.columns: rename_map["center_x"] = "cx"
-        if "center_y" in track_df.columns: rename_map["center_y"] = "cy"
+        if TrackingCSVColumns.FRAME in track_df.columns: rename_map[TrackingCSVColumns.FRAME] = "frame_id"
+        if TrackingCSVColumns.TRACK_ID in track_df.columns: rename_map[TrackingCSVColumns.TRACK_ID] = "object_id"
+        if TrackingCSVColumns.CENTER_X in track_df.columns: rename_map[TrackingCSVColumns.CENTER_X] = "cx"
+        if TrackingCSVColumns.CENTER_Y in track_df.columns: rename_map[TrackingCSVColumns.CENTER_Y] = "cy"
         track_df = track_df.rename(columns=rename_map)
         track_df.to_csv(insights_dir / "tracking_enriched.csv", index=False)
 
     # ── Resolution from annotated video ──────────────────────────────
     resolution = "unknown"
-    annotated_video = results_dir / "annotated_football_analysis.mp4"
+    annotated_video = results_dir / OutputFiles.ANNOTATED_VIDEO
     if annotated_video.exists():
         try:
             import cv2

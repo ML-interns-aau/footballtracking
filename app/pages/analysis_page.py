@@ -24,7 +24,7 @@ import streamlit as st
 from app.config import (
     MODEL_PATH, PROCESSED_DIR, ANNOTATIONS_DIR, INSIGHTS_DIR,
     PLAYER_CLASS_IDS, BALL_CLASS_ID, DEFAULT_CONF, DEFAULT_IOU, DEFAULT_IMGSZ,
-    DEFAULT_TARGET_FPS, DEFAULT_RESIZE_W,
+    DEFAULT_TARGET_FPS, DEFAULT_RESIZE_W, create_game_folder, update_game_status,
 )
 from app.utils import (
     page_header, render_pipeline, nav_button, metric_card,
@@ -35,8 +35,15 @@ from app.utils import (
 def _pipeline_command():
     project_root = Path(__file__).resolve().parents[2]
     main_py = project_root / "main.py"
-    out_dir = Path(INSIGHTS_DIR)
     input_video = st.session_state.get("processed_video") or st.session_state.get("uploaded_video", "")
+    
+    # Create game-specific folder
+    video_name = os.path.basename(input_video)
+    game_id = create_game_folder(video_name)
+    out_dir = Path(INSIGHTS_DIR) / game_id
+    
+    # Store game_id in session state for results page
+    st.session_state["current_game_id"] = game_id
 
     args = [
         sys.executable,
@@ -60,13 +67,15 @@ def _pipeline_command():
         str(st.session_state.get("analysis_imgsz", DEFAULT_IMGSZ)),
         "--model_path",
         MODEL_PATH,
+        "--game_id",
+        game_id,
     ]
 
     device = st.session_state.get("analysis_device", None)
     if device is not None:
         args.extend(["--device", str(device)])
 
-    return args, out_dir
+    return args, out_dir, game_id
 
 
 def _estimate_processed_frames(total_frames: int, source_fps: float) -> int:
@@ -87,9 +96,12 @@ def _estimate_processed_frames(total_frames: int, source_fps: float) -> int:
 
 
 def _run_pipeline_with_logs(status, progress, log_placeholder, total_estimated: int):
-    command, out_dir = _pipeline_command()
+    command, out_dir, game_id = _pipeline_command()
     status.info("Starting pipeline...")
     progress.progress(0, text="Preparing pipeline...")
+    
+    # Update game status to processing
+    update_game_status(game_id, "Processing", started=True)
 
     log_lines = ["$ " + " ".join(command)]
 
@@ -143,12 +155,19 @@ def _run_pipeline_with_logs(status, progress, log_placeholder, total_estimated: 
 
     return_code = process.wait()
     if return_code != 0:
+        # Update game status to failed
+        update_game_status(game_id, "Failed", error=f"Pipeline exited with code {return_code}")
         raise RuntimeError(f"Pipeline exited with code {return_code}")
 
     progress.progress(1.0, text="Pipeline complete.")
     status.success("Pipeline complete.")
-
+    
+    # Update game status to completed
     out_video = out_dir / "annotated_football_analysis.mp4"
+    update_game_status(game_id, "Completed", 
+                      output_video=str(out_video) if out_video.exists() else None,
+                      return_code=return_code)
+
     return {"output_video": str(out_video) if out_video.exists() else None, "return_code": return_code}
 
 

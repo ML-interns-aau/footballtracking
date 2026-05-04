@@ -24,6 +24,9 @@ from src.pipeline.data_exporter import DataExporter
 from src.pipeline.heatmap_analyzer import HeatmapAnalyzer
 from src.pipeline.visualizer import PipelineVisualizer
 from src.pipeline.tracking_csv_builder import TrackingCSVBuilder
+from src.pipeline.player_summary_csv_builder import PlayerSummaryCSVBuilder
+from src.pipeline.possession_summary_csv_builder import PossessionSummaryCSVBuilder
+from src.pipeline.output_schema import OutputFiles, OutputPathResolver
 from src.preprocessing.resolution_normalization import resize_frame
 
 
@@ -52,6 +55,14 @@ def main(args, progress_callback=None):
     input_path = Path(args.input)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Get game_id if provided
+    game_id = getattr(args, 'game_id', None)
+    
+    # Use output_dir directly as game_output_dir (already game-specific from analysis_page)
+    # Initialize OutputPathResolver without creating nested folder
+    resolver = OutputPathResolver(output_dir, None)  # Don't create nested folder
+    game_output_dir = output_dir  # Use the already game-specific output_dir
 
     target_fps = float(getattr(args, "target_fps", DEFAULT_TARGET_FPS) or 0)
     resize_width = int(getattr(args, "resize_width", DEFAULT_RESIZE_W) or 0)
@@ -97,7 +108,7 @@ def main(args, progress_callback=None):
         flush=True,
     )
 
-    out_video_path = output_dir / "annotated_football_analysis.mp4"
+    out_video_path = resolver.annotated_video()
     # Use avc1 (H.264) so the output is browser-playable in st.video()
     fourcc = cv2.VideoWriter_fourcc(*"avc1")
     out = cv2.VideoWriter(str(out_video_path), fourcc, fps, (width, height))
@@ -119,7 +130,7 @@ def main(args, progress_callback=None):
     team_classifier = TeamClassifier(n_teams=2, history_len=15, refit_interval=150)
     ball_tracker    = BallTracker(max_trail=25, max_missed=30)
     camera_motion   = CameraMotionEstimator(initial_frame)
-    data_exporter   = DataExporter(output_dir=str(output_dir))
+    data_exporter   = DataExporter(output_dir=str(game_output_dir))
     heatmap_analyzer = HeatmapAnalyzer(pitch_width=105, pitch_height=68)
     visualizer      = PipelineVisualizer()
 
@@ -141,6 +152,8 @@ def main(args, progress_callback=None):
     
     speed_estimator = SpeedEstimator(fps=effective_fps, pitch_mapper=pitch_mapper, window_size=8)
     csv_builder     = TrackingCSVBuilder(pitch_mapper=pitch_mapper, fps=effective_fps)
+    player_builder  = PlayerSummaryCSVBuilder()
+    possession_builder = PossessionSummaryCSVBuilder()
     print("[PHASE] tracking and export components initialized", flush=True)
 
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -237,6 +250,38 @@ def main(args, progress_callback=None):
         # Pass ball_speed_kmh for advanced possession/pass detection
         data_exporter.update_passes(processed_frame_idx, ball_pos_m, player_positions, ball_speed_kmh=ball_speed_kmh)
         csv_builder.add_frame(processed_frame_idx, tracked, team_ids)
+        
+        # Feed data to summary builders
+        tracked_objects = []
+        for i in range(len(tracked)):
+            bbox = tracked.xyxy[i]
+            class_id = int(tracked.class_id[i]) if tracked.class_id is not None else -1
+            t_id = int(tracked.tracker_id[i]) if tracked.tracker_id is not None else -1
+            team_id = int(team_ids[i])
+            
+            # Get speed and distance from speed_estimator
+            speed_km_h, distance_m, _ = speed_estimator.get_stats(t_id) if t_id > 0 else (0.0, 0.0, (0.0, 0.0))
+            
+            # Determine possession (closest to ball within 2m)
+            possession = False
+            if class_id == 0 and t_id > 0:  # Player only
+                player_pos = pitch_mapper.transform_point(((bbox[0] + bbox[2]) / 2, bbox[3]))
+                dist_to_ball = ((player_pos[0] - ball_pos_m[0])**2 + (player_pos[1] - ball_pos_m[1])**2)**0.5
+                possession = dist_to_ball < 2.0
+            
+            tracked_objects.append({
+                'tracker_id': t_id,
+                'team_id': team_id,
+                'class_id': class_id,
+                'speed_km_h': speed_km_h,
+                'distance_m': distance_m,
+                'possession': possession,
+                'team': f"Team {team_id}" if team_id >= 0 else "Unknown",
+                'role': "player" if class_id == 0 else ("referee" if class_id == 3 else "unknown")
+            })
+        
+        player_builder.add_frame(processed_frame_idx, tracked_objects)
+        possession_builder.add_frame(processed_frame_idx, tracked_objects)
 
         annotated = visualizer.annotate_frame(
             frame             = frame,
@@ -263,17 +308,38 @@ def main(args, progress_callback=None):
     out.release()
 
     data_exporter.finalize()
-    heatmap_analyzer.save_team_heatmap(0, str(output_dir / "team_0_heatmap.png"))
-    heatmap_analyzer.save_team_heatmap(1, str(output_dir / "team_1_heatmap.png"))
-
-    tracking_csv_path = output_dir / "tracking_output.csv"
+    
+    # Generate all unified outputs with game-specific folder (resolver already initialized)
+    
+    # Heatmaps
+    heatmap_analyzer.save_team_heatmap(0, output_path=str(resolver.heatmap_path(0)))
+    heatmap_analyzer.save_team_heatmap(1, output_path=str(resolver.heatmap_path(1)))
+    
+    # CSV outputs
+    tracking_csv_path = resolver.tracking_csv()
+    player_summary_path = resolver.player_summary_csv()
+    possession_summary_path = resolver.possession_summary_csv()
+    
     csv_builder.finalize_and_write(tracking_csv_path)
+    player_builder.finalize_and_write(player_summary_path)
+    possession_builder.finalize_and_write(possession_summary_path)
+    
+    print(f"[UNIFIED OUTPUTS] Generated all files in {game_output_dir}:")
+    print(f"  - {OutputFiles.TRACKING} ({len(tracking_csv_path.read_text().splitlines()) if tracking_csv_path.exists() else 0} lines)")
+    print(f"  - {OutputFiles.PLAYER_SUMMARY} ({len(player_summary_path.read_text().splitlines()) if player_summary_path.exists() else 0} lines)")
+    print(f"  - {OutputFiles.POSSESSION_SUMMARY} ({len(possession_summary_path.read_text().splitlines()) if possession_summary_path.exists() else 0} lines)")
+    analytics_json_path = resolver.analytics_json()
+    print(f"  - {OutputFiles.ANALYTICS_JSON} ({len(analytics_json_path.read_text().splitlines()) if analytics_json_path.exists() else 0} lines)")
+    print(f"  - {OutputFiles.HEATMAP_TEAM_0} ({'exists' if resolver.heatmap_path(0).exists() else 'missing'})")
+    print(f"  - {OutputFiles.HEATMAP_TEAM_1} ({'exists' if resolver.heatmap_path(1).exists() else 'missing'})")
 
     return {
         "total_frames": processed_frame_idx,
         "fps": fps,
         "resolution": f"{width}x{height}",
         "output_video": str(out_video_path),
+        "game_id": game_id,
+        "game_folder": str(game_output_dir),
     }
 
 
@@ -289,5 +355,6 @@ if __name__ == "__main__":
     parser.add_argument("--imgsz", type=int, default=DEFAULT_IMGSZ)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--model_path", type=str, default=MODEL_PATH)
+    parser.add_argument("--game_id", type=str, default=None, help="Game ID for game-specific folder organization")
     args = parser.parse_args()
     main(args)

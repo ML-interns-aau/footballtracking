@@ -7,14 +7,15 @@ class DataExporter:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        self.csv_path = self.output_dir / "analytics.csv"
-        self.json_path = self.output_dir / "analytics.json"
+        from .output_schema import OutputFiles, AnalyticsCSVColumns
+        self.csv_path = self.output_dir / OutputFiles.ANALYTICS
+        self.json_path = self.output_dir / OutputFiles.ANALYTICS_JSON
         
         self.frame_data = []
         
         with open(self.csv_path, mode='w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(["frame", "object_id", "class", "team", "x_m", "y_m", "speed_kmh", "distance_m"])
+            writer.writerow(AnalyticsCSVColumns.all_columns())
             
         self.current_possessor_id = None
         self.contact_frames = 0
@@ -125,7 +126,7 @@ class DataExporter:
         
         final_data = convert_numpy(final_data)
 
-        with open(self.json_path, 'w') as f:
-            json.dump(final_data, f, indent=2)
+        from .output_schema import write_json_atomic
+        write_json_atomic(self.json_path, final_data)
             
         print(f"Data exporter finalized. Saved {self.csv_path} and {self.json_path}")

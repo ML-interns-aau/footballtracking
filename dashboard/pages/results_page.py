@@ -7,7 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from dashboard.config import INSIGHTS_DIR, ANNOTATIONS_DIR, PROCESSED_DIR
+from dashboard.config import INSIGHTS_DIR, ANNOTATIONS_DIR, PROCESSED_DIR, get_game_list
 from dashboard.utils import (
     page_header, render_pipeline, nav_button, metric_card,
     ACCENT, TEXT_PRIMARY, TEXT_MUTED, BG_CARD, BG_DARK,
@@ -48,8 +48,23 @@ def _layout(**overrides):
     return d
 
 
-def _load_csv(name):
+from src.pipeline.output_schema import OutputFiles, TrackingCSVColumns, OutputPathResolver
+
+def _load_csv(name, game_id=None):
+    """Load CSV file from game-specific folder or fallback locations."""
     from dashboard.config import PROJECT_ROOT
+    
+    # If game_id is provided, try game-specific folder first
+    if game_id:
+        game_path = os.path.join(INSIGHTS_DIR, game_id)
+        p = os.path.join(game_path, name)
+        if os.path.exists(p):
+            try:
+                return pd.read_csv(p)
+            except Exception:
+                pass
+    
+    # Fallback to old locations
     search_dirs = [
         INSIGHTS_DIR,
         ANNOTATIONS_DIR,
@@ -65,12 +80,42 @@ def _load_csv(name):
     return None
 
 
-def _load_summary():
+def _load_summary(game_id=None):
+    """Load analytics.json metadata from game-specific folder or fallback."""
     from dashboard.config import PROJECT_ROOT
+    
+    # If game_id is provided, try game-specific folder first
+    if game_id:
+        game_path = os.path.join(INSIGHTS_DIR, game_id)
+        p = os.path.join(game_path, OutputFiles.ANALYTICS_JSON)
+        if os.path.exists(p):
+            try:
+                with open(p) as f:
+                    data = json.load(f)
+                    # Extract metadata section for display
+                    return data.get("metadata", {})
+            except Exception:
+                pass
+    
+    # Fallback to old locations
     search_dirs = [
         INSIGHTS_DIR,
         os.path.join(PROJECT_ROOT, "results"),
     ]
+    
+    # First try analytics.json (unified output)
+    for d in search_dirs:
+        p = os.path.join(d, OutputFiles.ANALYTICS_JSON)
+        if os.path.exists(p):
+            try:
+                with open(p) as f:
+                    data = json.load(f)
+                    # Extract metadata section for display
+                    return data.get("metadata", {})
+            except Exception:
+                pass
+    
+    # Fallback to old pipeline_summary.json
     for d in search_dirs:
         p = os.path.join(d, "pipeline_summary.json")
         if os.path.exists(p):
@@ -82,16 +127,24 @@ def _load_summary():
     return {}
 
 
-def _find_tracked_video():
+def _find_tracked_video(game_id=None):
+    """Find tracked video from game-specific folder or fallback locations."""
     # 1. Prefer the path stored in session state (set by analysis_page)
     v = st.session_state.get("tracked_video")
     if v and os.path.exists(v):
         return v
+    
+    # 2. If game_id is provided, check game-specific folder
+    if game_id:
+        game_path = os.path.join(INSIGHTS_DIR, game_id)
+        canonical = os.path.join(game_path, OutputFiles.ANNOTATED_VIDEO)
+        if os.path.exists(canonical):
+            return canonical
 
-    # 2. Check the canonical results/ output path
+    # 3. Check the canonical results/ output path
     from dashboard.config import PROJECT_ROOT
     results_dir = os.path.join(PROJECT_ROOT, "results")
-    canonical = os.path.join(results_dir, "annotated_football_analysis.mp4")
+    canonical = os.path.join(results_dir, OutputFiles.ANNOTATED_VIDEO)
     if os.path.exists(canonical):
         return canonical
 
@@ -122,12 +175,30 @@ def _read_video_bytes(path: str) -> bytes | None:
 def render():
     page_header("Results", "Possession, player stats, speed analysis, and exports.")
     # render_pipeline(done_up_to=3)
-
-    player_df     = _load_csv("player_summary.csv")
-    poss_df       = _load_csv("possession_summary.csv")
-    track_df      = _load_csv("tracking_enriched.csv")
-    summary       = _load_summary()
-    tracked_video = _find_tracked_video()
+    
+    # Game selection
+    games = get_game_list()
+    
+    if games:
+        game_options = [(f"{g['video_name']} ({g['status']})", g['game_id']) for g in games]
+        selected_option = st.selectbox(
+            "Select Game:",
+            options=game_options,
+            index=0,
+            format_func=lambda x: x[0],
+            key="game_selector"
+        )
+        selected_game_id = selected_option[1]
+    else:
+        st.info("No games found. Run analysis first.")
+        selected_game_id = None
+    
+    # Load data for selected game
+    player_df     = _load_csv(OutputFiles.PLAYER_SUMMARY, selected_game_id)
+    poss_df       = _load_csv(OutputFiles.POSSESSION_SUMMARY, selected_game_id)
+    track_df      = _load_csv(OutputFiles.TRACKING, selected_game_id)
+    summary       = _load_summary(selected_game_id)
+    tracked_video = _find_tracked_video(selected_game_id)
 
     if player_df is None and poss_df is None and track_df is None:
         st.warning("No results found. Run the analysis pipeline first.")
@@ -326,12 +397,12 @@ def render():
             st.caption(f"{len(track_df):,} rows — showing first 500")
             st.dataframe(track_df.head(500), width='stretch', hide_index=True, height=360)
 
-            if "frame_id" in track_df.columns and "object_id" in track_df.columns:
-                per_frame = track_df.groupby("frame_id")["object_id"].nunique().reset_index()
-                per_frame.columns = ["frame_id", "objects"]
+            if TrackingCSVColumns.FRAME in track_df.columns and TrackingCSVColumns.TRACK_ID in track_df.columns:
+                per_frame = track_df.groupby(TrackingCSVColumns.FRAME)[TrackingCSVColumns.TRACK_ID].nunique().reset_index()
+                per_frame.columns = [TrackingCSVColumns.FRAME, "objects"]
                 fig6 = go.Figure()
                 fig6.add_trace(go.Scatter(
-                    x=per_frame["frame_id"], y=per_frame["objects"],
+                    x=per_frame[TrackingCSVColumns.FRAME], y=per_frame["objects"],
                     mode="lines", fill="tozeroy",
                     fillcolor="rgba(220,38,38,0.08)",
                     line=dict(color=ACCENT, width=1.5),
@@ -341,9 +412,9 @@ def render():
                                    xaxis_title="Frame", yaxis_title="Objects")
                 st.plotly_chart(fig6, width='stretch')
 
-            if "cx" in track_df.columns and "cy" in track_df.columns:
+            if TrackingCSVColumns.CENTER_X in track_df.columns and TrackingCSVColumns.CENTER_Y in track_df.columns:
                 fig7 = go.Figure(go.Histogram2dContour(
-                    x=track_df["cx"], y=track_df["cy"],
+                    x=track_df[TrackingCSVColumns.CENTER_X], y=track_df[TrackingCSVColumns.CENTER_Y],
                     colorscale=[[0, "rgba(0,0,0,0)"], [0.3, "rgba(220,38,38,0.2)"],
                                 [0.7, "rgba(220,38,38,0.6)"], [1, "#dc2626"]],
                     reversescale=False, showscale=False, ncontours=20,
@@ -358,9 +429,9 @@ def render():
     # DOWNLOADS
     with tab_dl:
         downloads = [
-            ("Player Summary", "player_summary.csv", player_df, "Per-player stats: speed, possession, team."),
-            ("Possession", "possession_summary.csv", poss_df, "Team-level possession percentages."),
-            ("Tracking Data", "tracking_enriched.csv", track_df, "Frame-by-frame tracking with velocity."),
+            ("Player Summary", OutputFiles.PLAYER_SUMMARY, player_df, "Per-player stats: speed, possession, team."),
+            ("Possession", OutputFiles.POSSESSION_SUMMARY, poss_df, "Team-level possession percentages."),
+            ("Tracking Data", OutputFiles.TRACKING, track_df, "Frame-by-frame tracking with velocity."),
         ]
         cols = st.columns(3)
         for col, (title, fname, df, desc) in zip(cols, downloads):
@@ -385,7 +456,30 @@ def render():
                 st.download_button("⬇  Download Tracked Video (MP4)", data=vf.read(),
                                    file_name=os.path.basename(tracked_video),
                                    mime="video/mp4", width='stretch', type="primary")
-        if summary:
+        # Download analytics.json if available
+        analytics_json_path = None
+        if selected_game_id:
+            game_path = os.path.join(INSIGHTS_DIR, selected_game_id)
+            p = os.path.join(game_path, OutputFiles.ANALYTICS_JSON)
+            if os.path.exists(p):
+                analytics_json_path = p
+        else:
+            # Fallback to old locations
+            for d in [INSIGHTS_DIR, os.path.join(os.path.dirname(__file__), "../../../results")]:
+                p = os.path.join(d, OutputFiles.ANALYTICS_JSON)
+                if os.path.exists(p):
+                    analytics_json_path = p
+                    break
+        
+        if analytics_json_path:
+            with open(analytics_json_path, 'r') as f:
+                analytics_data = f.read()
+            st.download_button("⬇  Download Analytics (JSON)",
+                               data=analytics_data,
+                               file_name=OutputFiles.ANALYTICS_JSON,
+                               mime="application/json", width='stretch')
+        elif summary:
+            # Fallback to summary data
             st.download_button("⬇  Download Pipeline Summary (JSON)",
                                data=json.dumps(summary, indent=2),
                                file_name="pipeline_summary.json",

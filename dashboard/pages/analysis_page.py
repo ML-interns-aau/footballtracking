@@ -71,20 +71,38 @@ class _PipelineState:
         self.result      = {}            # populated on success
 
 
-def _run_pipeline_thread(raw_video: str, max_frames: int, state: _PipelineState, device: str):
+def _run_pipeline_thread(raw_video: str, max_frames: int, state: _PipelineState, device: str,
+                         target_fps: float, resize_width: int, conf: float, iou: float, imgsz: int):
     """Target function for the background pipeline thread."""
     try:
         import main as pipeline_main
         import importlib
         importlib.reload(pipeline_main)
-
-        out_dir = os.path.join(PROJECT_ROOT, "results")
+        
+        # Create game-specific folder
+        from dashboard.config import create_game_folder, update_game_status
+        video_name = os.path.basename(raw_video)
+        game_id = create_game_folder(video_name)
+        
+        # Use insights/game_id as output directory
+        out_dir = os.path.join(INSIGHTS_DIR, game_id)
         os.makedirs(out_dir, exist_ok=True)
+        
+        # Update game status to processing
+        update_game_status(game_id, "Processing", started=True)
 
         args = SimpleNamespace(
             input=raw_video,
             output_dir=out_dir,
             max_frames=max_frames,
+            target_fps=target_fps,
+            resize_width=resize_width,
+            conf=conf,
+            iou=iou,
+            imgsz=imgsz,
+            device=device,
+            model_path=MODEL_PATH,
+            game_id=game_id,  # Pass game_id to pipeline
         )
 
         def _progress(current, total):
@@ -94,16 +112,17 @@ def _run_pipeline_thread(raw_video: str, max_frames: int, state: _PipelineState,
 
         # Patch device into pipeline_main so FootballDetector picks it up
         result = pipeline_main.main(args, progress_callback=_progress)
+        
+        # Update game status to completed
+        update_game_status(game_id, "Completed", 
+                          total_frames=result.get("total_frames", 0),
+                          fps=result.get("fps", 0),
+                          resolution=result.get("resolution", ""),
+                          output_video=result.get("output_video", ""))
 
-        # Post-process
-        try:
-            import post_process_results
-            importlib.reload(post_process_results)
-            vname = os.path.basename(raw_video)
-            post_process_results.post_process(out_dir, INSIGHTS_DIR, video_name=vname)
-        except Exception as pp_err:
-            # Non-fatal — pipeline output is still valid
-            print(f"[post_process] Warning: {pp_err}")
+        # Store game_id in result for later use
+        result["game_id"] = game_id
+        result["game_folder"] = out_dir
 
         with state.lock:
             state.result  = result or {}
@@ -347,6 +366,10 @@ def render():
 
     if st.button("▶  Run Full Pipeline", type="primary", width='stretch'):
         max_f = max_frames_to_process  # read directly from the widget return value
+        
+        # Use preprocessed values if available, otherwise use user selections
+        effective_fps = preproc_fps if using_preprocessed else target_fps
+        effective_width = preproc_width if using_preprocessed else resize_width
 
         state = _PipelineState()
         state.running = True
@@ -354,7 +377,7 @@ def render():
 
         thread = threading.Thread(
             target=_run_pipeline_thread,
-            args=(input_video, max_f, state, device),
+            args=(input_video, max_f, state, device, effective_fps, effective_width, conf, iou, imgsz),
             daemon=True,
         )
         thread.start()

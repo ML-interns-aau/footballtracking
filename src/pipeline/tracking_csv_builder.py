@@ -4,6 +4,11 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 from collections import defaultdict
 
+from src.pipeline.output_schema import (
+    TrackingCSVColumns,
+    write_csv_headers,
+)
+
 
 def _iou(boxA: np.ndarray, boxB: np.ndarray) -> float:
     xa1, ya1, xa2, ya2 = boxA
@@ -80,17 +85,6 @@ class TrackingCSVBuilder:
     PITCH_H          = 68.0
     POSSESSION_RADIUS = 2.0
 
-    CSV_COLUMNS = [
-        "frame", "track_id", "team_id", "player_id",
-        "bb_left", "bb_top", "bb_width", "bb_height",
-        "center_x", "center_y",
-        "velocity_x", "velocity_y", "speed", "acceleration", "direction",
-        "pitch_x", "pitch_y",
-        "is_ball", "possession", "role", "is_goalkeeper", "team_side",
-        "distance_to_ball", "in_possession_zone",
-        "confidence", "extra",
-    ]
-
     def __init__(
         self,
         pitch_mapper=None,
@@ -162,20 +156,34 @@ class TrackingCSVBuilder:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         if not self._records:
-            return pd.DataFrame(columns=self.CSV_COLUMNS)
+            print("[TrackingCSVBuilder] No records to export")
+            return pd.DataFrame(columns=TrackingCSVColumns.all_columns())
 
         df = pd.DataFrame(self._records)
-        df = df.sort_values(["track_id", "frame"]).reset_index(drop=True)
+        df = df.sort_values([TrackingCSVColumns.TRACK_ID, TrackingCSVColumns.FRAME]).reset_index(drop=True)
         df = self._interpolate(df)
         df = self._apply_pitch_mapping(df)
         df = self._calculate_motion_features(df)
         df = self._infer_football_context(df)
-        df = df.sort_values(["frame", "track_id"]).reset_index(drop=True)
+        df = df.sort_values([TrackingCSVColumns.FRAME, TrackingCSVColumns.TRACK_ID]).reset_index(drop=True)
 
-        final = df[self.CSV_COLUMNS].copy()
+        # Ensure all required columns exist
+        required_columns = TrackingCSVColumns.all_columns()
+        for col in required_columns:
+            if col not in df.columns:
+                df[col] = 0.0 if col in [TrackingCSVColumns.SPEED, TrackingCSVColumns.VELOCITY_X, 
+                                         TrackingCSVColumns.VELOCITY_Y, TrackingCSVColumns.ACCELERATION,
+                                         TrackingCSVColumns.DISTANCE_TO_BALL] else ""
+
+        final = df[required_columns].copy()
         num_cols = final.select_dtypes(include=[np.number]).columns
         final[num_cols] = final[num_cols].round(4)
-        final.to_csv(output_path, index=False)
+        
+        # Write CSV with headers
+        write_csv_headers(output_path, required_columns)
+        final.to_csv(output_path, index=False, mode='a', header=False)
+        
+        print(f"[TrackingCSVBuilder] Exported {len(final)} records to {output_path}")
         return final
 
     @staticmethod
@@ -183,126 +191,142 @@ class TrackingCSVBuilder:
                      bb_left, bb_top, bb_width, bb_height,
                      is_ball, confidence, extra) -> Dict[str, Any]:
         return {
-            "frame": frame_idx, "track_id": track_id, "team_id": team_id,
-            "player_id": player_id, "bb_left": bb_left, "bb_top": bb_top,
-            "bb_width": bb_width, "bb_height": bb_height,
-            "center_x": bb_left + bb_width / 2.0,
-            "center_y": bb_top + bb_height / 2.0,
-            "is_ball": is_ball, "confidence": confidence, "extra": extra,
+            TrackingCSVColumns.FRAME: frame_idx,
+            TrackingCSVColumns.TRACK_ID: track_id,
+            TrackingCSVColumns.TEAM_ID: team_id,
+            TrackingCSVColumns.PLAYER_ID: player_id,
+            TrackingCSVColumns.BB_LEFT: bb_left,
+            TrackingCSVColumns.BB_TOP: bb_top,
+            TrackingCSVColumns.BB_WIDTH: bb_width,
+            TrackingCSVColumns.BB_HEIGHT: bb_height,
+            TrackingCSVColumns.CENTER_X: bb_left + bb_width / 2.0,
+            TrackingCSVColumns.CENTER_Y: bb_top + bb_height / 2.0,
+            TrackingCSVColumns.IS_BALL: is_ball,
+            TrackingCSVColumns.CONFIDENCE: confidence,
+            TrackingCSVColumns.EXTRA: extra,
         }
 
     def _interpolate(self, df: pd.DataFrame) -> pd.DataFrame:
-        spatial_cols = ["bb_left", "bb_top", "bb_width", "bb_height", "center_x", "center_y", "confidence"]
+        spatial_cols = [
+            TrackingCSVColumns.BB_LEFT, TrackingCSVColumns.BB_TOP, 
+            TrackingCSVColumns.BB_WIDTH, TrackingCSVColumns.BB_HEIGHT,
+            TrackingCSVColumns.CENTER_X, TrackingCSVColumns.CENTER_Y,
+            TrackingCSVColumns.CONFIDENCE
+        ]
         chunks: List[pd.DataFrame] = []
-        for tid, grp in df.groupby("track_id"):
-            grp = grp.sort_values("frame")
-            min_f, max_f = grp["frame"].min(), grp["frame"].max()
+        for tid, grp in df.groupby(TrackingCSVColumns.TRACK_ID):
+            grp = grp.sort_values(TrackingCSVColumns.FRAME)
+            min_f, max_f = grp[TrackingCSVColumns.FRAME].min(), grp[TrackingCSVColumns.FRAME].max()
             full_idx = list(range(min_f, max_f + 1))
-            grp = grp.set_index("frame").reindex(full_idx)
-            for col in ["track_id", "team_id", "player_id", "is_ball", "extra"]:
+            grp = grp.set_index(TrackingCSVColumns.FRAME).reindex(full_idx)
+            for col in [TrackingCSVColumns.TRACK_ID, TrackingCSVColumns.TEAM_ID, 
+                       TrackingCSVColumns.PLAYER_ID, TrackingCSVColumns.IS_BALL, 
+                       TrackingCSVColumns.EXTRA]:
                 grp[col] = grp[col].ffill().bfill()
             for col in spatial_cols:
                 grp[col] = grp[col].interpolate(
                     method="linear", limit=self.interpolate_max_gap, limit_direction="both"
                 )
-            grp = grp.reset_index().rename(columns={"index": "frame"})
+            grp = grp.reset_index().rename(columns={"index": TrackingCSVColumns.FRAME})
             chunks.append(grp)
         return pd.concat(chunks, ignore_index=True) if chunks else df
 
     def _apply_pitch_mapping(self, df: pd.DataFrame) -> pd.DataFrame:
-        foot_x = df["center_x"].copy()
-        foot_y = (df["bb_top"] + df["bb_height"]).copy()
-        ball_mask = df["is_ball"] == 1
-        foot_y[ball_mask] = df.loc[ball_mask, "center_y"]
+        foot_x = df[TrackingCSVColumns.CENTER_X].copy()
+        foot_y = (df[TrackingCSVColumns.BB_TOP] + df[TrackingCSVColumns.BB_HEIGHT]).copy()
+        ball_mask = df[TrackingCSVColumns.IS_BALL] == 1
+        foot_y[ball_mask] = df.loc[ball_mask, TrackingCSVColumns.CENTER_Y]
         df = df.copy()
         if self.pitch_mapper is not None:
             coords = np.column_stack([foot_x.to_numpy(), foot_y.to_numpy()])
             mapped = self.pitch_mapper.transform_points(coords)
-            df["pitch_x"] = mapped[:, 0]
-            df["pitch_y"] = mapped[:, 1]
+            df[TrackingCSVColumns.PITCH_X] = mapped[:, 0]
+            df[TrackingCSVColumns.PITCH_Y] = mapped[:, 1]
         else:
-            df["pitch_x"] = foot_x / self.video_width  * self.PITCH_W
-            df["pitch_y"] = foot_y / self.video_height * self.PITCH_H
+            df[TrackingCSVColumns.PITCH_X] = foot_x / self.video_width  * self.PITCH_W
+            df[TrackingCSVColumns.PITCH_Y] = foot_y / self.video_height * self.PITCH_H
         return df
 
     def _calculate_motion_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        df = df.sort_values(["track_id", "frame"]).copy()
+        df = df.sort_values([TrackingCSVColumns.TRACK_ID, TrackingCSVColumns.FRAME]).copy()
         dt = 1.0 / self.fps
         results = []
-        for tid, grp in df.groupby("track_id"):
-            grp = grp.sort_values("frame").copy()
-            grp["pitch_x"] = pd.to_numeric(grp["pitch_x"], errors='coerce')
-            grp["pitch_y"] = pd.to_numeric(grp["pitch_y"], errors='coerce')
+        for tid, grp in df.groupby(TrackingCSVColumns.TRACK_ID):
+            grp = grp.sort_values(TrackingCSVColumns.FRAME).copy()
+            grp[TrackingCSVColumns.PITCH_X] = pd.to_numeric(grp[TrackingCSVColumns.PITCH_X], errors='coerce')
+            grp[TrackingCSVColumns.PITCH_Y] = pd.to_numeric(grp[TrackingCSVColumns.PITCH_Y], errors='coerce')
             
-            raw_vx = grp["pitch_x"].diff() / dt
-            raw_vy = grp["pitch_y"].diff() / dt
+            raw_vx = grp[TrackingCSVColumns.PITCH_X].diff() / dt
+            raw_vy = grp[TrackingCSVColumns.PITCH_Y].diff() / dt
             raw_sp = (raw_vx**2 + raw_vy**2).pow(0.5)
             vx = raw_vx.ewm(alpha=self.ema_alpha, adjust=False).mean()
             vy = raw_vy.ewm(alpha=self.ema_alpha, adjust=False).mean()
             sp = raw_sp.ewm(alpha=self.ema_alpha, adjust=False).mean()
             ac = sp.diff().ewm(alpha=self.ema_alpha, adjust=False).mean()
             di = np.degrees(np.arctan2(vy, vx))
-            grp["velocity_x"]   = vx
-            grp["velocity_y"]   = vy
-            grp["speed"]        = sp
-            grp["acceleration"] = ac
-            grp["direction"]    = di
+            grp[TrackingCSVColumns.VELOCITY_X] = vx
+            grp[TrackingCSVColumns.VELOCITY_Y] = vy
+            grp[TrackingCSVColumns.SPEED] = sp
+            grp[TrackingCSVColumns.ACCELERATION] = ac
+            grp[TrackingCSVColumns.DIRECTION] = di
             results.append(grp)
         return pd.concat(results, ignore_index=True)
 
     def _infer_football_context(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
-        ball_rows = df[df["is_ball"] == 1][["frame", "pitch_x", "pitch_y"]]
+        ball_rows = df[df[TrackingCSVColumns.IS_BALL] == 1][[
+            TrackingCSVColumns.FRAME, TrackingCSVColumns.PITCH_X, TrackingCSVColumns.PITCH_Y
+        ]]
         if not ball_rows.empty:
-            ball_pos = ball_rows.groupby("frame").first().rename(
-                columns={"pitch_x": "_ball_x", "pitch_y": "_ball_y"}
+            ball_pos = ball_rows.groupby(TrackingCSVColumns.FRAME).first().rename(
+                columns={TrackingCSVColumns.PITCH_X: "_ball_x", TrackingCSVColumns.PITCH_Y: "_ball_y"}
             )
         else:
-            ball_pos = pd.DataFrame(columns=["frame", "_ball_x", "_ball_y"]).set_index("frame")
-        df = df.merge(ball_pos, on="frame", how="left")
-        for col in ["pitch_x", "pitch_y", "_ball_x", "_ball_y"]:
+            ball_pos = pd.DataFrame(columns=[TrackingCSVColumns.FRAME, "_ball_x", "_ball_y"]).set_index(TrackingCSVColumns.FRAME)
+        df = df.merge(ball_pos, on=TrackingCSVColumns.FRAME, how="left")
+        for col in [TrackingCSVColumns.PITCH_X, TrackingCSVColumns.PITCH_Y, "_ball_x", "_ball_y"]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
 
-        dist_sq = (df["pitch_x"] - df["_ball_x"]).pow(2) + (df["pitch_y"] - df["_ball_y"]).pow(2)
-        df["distance_to_ball"] = dist_sq.pow(0.5).fillna(-1.0)
+        dist_sq = (df[TrackingCSVColumns.PITCH_X] - df["_ball_x"]).pow(2) + (df[TrackingCSVColumns.PITCH_Y] - df["_ball_y"]).pow(2)
+        df[TrackingCSVColumns.DISTANCE_TO_BALL] = dist_sq.pow(0.5).fillna(-1.0)
 
-        df["possession"] = -1
-        player_only = df[(df["is_ball"] == 0) & (df["team_id"] != 2)].copy()
+        df[TrackingCSVColumns.POSSESSION] = -1
+        player_only = df[(df[TrackingCSVColumns.IS_BALL] == 0) & (df[TrackingCSVColumns.TEAM_ID] != 2)].copy()
         if not player_only.empty:
-            valid = player_only[player_only["distance_to_ball"] >= 0].copy()
+            valid = player_only[player_only[TrackingCSVColumns.DISTANCE_TO_BALL] >= 0].copy()
             if not valid.empty:
-                closest_idx = valid.groupby("frame")["distance_to_ball"].idxmin()
+                closest_idx = valid.groupby(TrackingCSVColumns.FRAME)[TrackingCSVColumns.DISTANCE_TO_BALL].idxmin()
                 closest = valid.loc[closest_idx]
-                closest = closest[closest["distance_to_ball"] < self.POSSESSION_RADIUS]
-                poss_map = dict(zip(closest["frame"], closest["track_id"].astype(int)))
-                df.loc[df["frame"].isin(poss_map), "possession"] = (
-                    df.loc[df["frame"].isin(poss_map), "frame"].map(poss_map)
+                closest = closest[closest[TrackingCSVColumns.DISTANCE_TO_BALL] < self.POSSESSION_RADIUS]
+                poss_map = dict(zip(closest[TrackingCSVColumns.FRAME], closest[TrackingCSVColumns.TRACK_ID].astype(int)))
+                df.loc[df[TrackingCSVColumns.FRAME].isin(poss_map), TrackingCSVColumns.POSSESSION] = (
+                    df.loc[df[TrackingCSVColumns.FRAME].isin(poss_map), TrackingCSVColumns.FRAME].map(poss_map)
                 )
 
-        avg_x_map = df.groupby("track_id")["pitch_x"].mean()
-        df["_avg_x"]      = df["track_id"].map(avg_x_map)
-        df["is_goalkeeper"] = 0
-        df["role"]          = "unknown"
-        df.loc[df["team_id"] == 2, "role"] = "referee"
+        avg_x_map = df.groupby(TrackingCSVColumns.TRACK_ID)[TrackingCSVColumns.PITCH_X].mean()
+        df["_avg_x"]      = df[TrackingCSVColumns.TRACK_ID].map(avg_x_map)
+        df[TrackingCSVColumns.IS_GOALKEEPER] = 0
+        df[TrackingCSVColumns.ROLE] = "unknown"
+        df.loc[df[TrackingCSVColumns.TEAM_ID] == 2, TrackingCSVColumns.ROLE] = "referee"
 
-        gk_mask_0 = (df["team_id"] == 0) & (df["_avg_x"] < 15)
-        gk_mask_1 = (df["team_id"] == 1) & (df["_avg_x"] > 90)
-        df.loc[gk_mask_0 | gk_mask_1, "is_goalkeeper"] = 1
-        df.loc[gk_mask_0 | gk_mask_1, "role"]          = "goalkeeper"
+        gk_mask_0 = (df[TrackingCSVColumns.TEAM_ID] == 0) & (df["_avg_x"] < 15)
+        gk_mask_1 = (df[TrackingCSVColumns.TEAM_ID] == 1) & (df["_avg_x"] > 90)
+        df.loc[gk_mask_0 | gk_mask_1, TrackingCSVColumns.IS_GOALKEEPER] = 1
+        df.loc[gk_mask_0 | gk_mask_1, TrackingCSVColumns.ROLE] = "goalkeeper"
 
-        outfield_0 = df[(df["team_id"] == 0) & (df["is_goalkeeper"] == 0) & (df["role"] == "unknown")]
-        df.loc[outfield_0.index[outfield_0["_avg_x"] < 35], "role"] = "defender"
-        df.loc[outfield_0.index[(outfield_0["_avg_x"] >= 35) & (outfield_0["_avg_x"] < 65)], "role"] = "midfielder"
-        df.loc[outfield_0.index[outfield_0["_avg_x"] >= 65], "role"] = "forward"
+        outfield_0 = df[(df[TrackingCSVColumns.TEAM_ID] == 0) & (df[TrackingCSVColumns.IS_GOALKEEPER] == 0) & (df[TrackingCSVColumns.ROLE] == "unknown")]
+        df.loc[outfield_0.index[outfield_0["_avg_x"] < 35], TrackingCSVColumns.ROLE] = "defender"
+        df.loc[outfield_0.index[(outfield_0["_avg_x"] >= 35) & (outfield_0["_avg_x"] < 65)], TrackingCSVColumns.ROLE] = "midfielder"
+        df.loc[outfield_0.index[outfield_0["_avg_x"] >= 65], TrackingCSVColumns.ROLE] = "forward"
 
-        outfield_1 = df[(df["team_id"] == 1) & (df["is_goalkeeper"] == 0) & (df["role"] == "unknown")]
-        df.loc[outfield_1.index[outfield_1["_avg_x"] > 70], "role"] = "defender"
-        df.loc[outfield_1.index[(outfield_1["_avg_x"] <= 70) & (outfield_1["_avg_x"] > 40)], "role"] = "midfielder"
-        df.loc[outfield_1.index[outfield_1["_avg_x"] <= 40], "role"] = "forward"
+        outfield_1 = df[(df[TrackingCSVColumns.TEAM_ID] == 1) & (df[TrackingCSVColumns.IS_GOALKEEPER] == 0) & (df[TrackingCSVColumns.ROLE] == "unknown")]
+        df.loc[outfield_1.index[outfield_1["_avg_x"] > 70], TrackingCSVColumns.ROLE] = "defender"
+        df.loc[outfield_1.index[(outfield_1["_avg_x"] <= 70) & (outfield_1["_avg_x"] > 40)], TrackingCSVColumns.ROLE] = "midfielder"
+        df.loc[outfield_1.index[outfield_1["_avg_x"] <= 40], TrackingCSVColumns.ROLE] = "forward"
 
-        df["team_side"] = df["pitch_x"].apply(lambda x: "left" if x < 52.5 else "right")
-        df["in_possession_zone"] = df["pitch_x"].apply(
+        df[TrackingCSVColumns.TEAM_SIDE] = df[TrackingCSVColumns.PITCH_X].apply(lambda x: "left" if x < 52.5 else "right")
+        df[TrackingCSVColumns.IN_POSSESSION_ZONE] = df[TrackingCSVColumns.PITCH_X].apply(
             lambda x: "defensive third" if x < 35 else ("middle third" if x < 70 else "attacking third")
         )
         df = df.drop(columns=["_ball_x", "_ball_y", "_avg_x"], errors="ignore")
