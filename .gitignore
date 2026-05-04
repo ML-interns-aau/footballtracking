@@ -24,6 +24,7 @@ Thumbs.db
 # Runtime data and outputs
 data/
 results/
+test_results/
 *.mp4
 *.avi
 *.mov

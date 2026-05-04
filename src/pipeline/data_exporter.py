@@ -16,8 +16,17 @@ class DataExporter:
             writer = csv.writer(f)
             writer.writerow(["frame", "object_id", "class", "team", "x_m", "y_m", "speed_kmh", "distance_m"])
             
-        self.last_ball_possessor = None
+        self.current_possessor_id = None
+        self.contact_frames = 0
+        self.loose_ball_frames = 0
+        self.last_ball_possessor = None # (player_id, frame_idx)
         self.passes = []
+
+        # Thresholds
+        self.POSSESSION_RADIUS = 1.5   # meters
+        self.MIN_POSSESSION_FRAMES = 5 # smoothing
+        self.MIN_LOOSE_FRAMES = 15     # before declaring loose
+        self.PASS_SPEED_THRESHOLD = 20 # km/h
 
     def log_frame(self, frame_idx: int, frame_objects: list[dict]):
         self.frame_data.append({
@@ -39,7 +48,7 @@ class DataExporter:
                     round(obj.get("distance", 0.0), 2) if "distance" in obj else ""
                 ])
 
-    def update_passes(self, frame_idx: int, ball_pos: tuple[float, float], player_positions: dict[int, tuple[float, float]]):
+    def update_passes(self, frame_idx: int, ball_pos: tuple[float, float], player_positions: dict[int, tuple[float, float]], ball_speed_kmh: float = 0.0):
         if ball_pos == (0.0, 0.0):
             return
             
@@ -51,26 +60,47 @@ class DataExporter:
             if dist < closest_dist:
                 closest_dist = dist
                 closest_player_id = p_id
-                
-        possession_radius = 1.0
         
-        if closest_dist <= possession_radius:
-            current_possessor = closest_player_id
-            
-            if self.last_ball_possessor is not None:
-                last_pid, last_frame = self.last_ball_possessor
-                
-                if current_possessor != last_pid and (frame_idx - last_frame) > 3:
-                    pass_record = {
-                        "passer_id": last_pid,
-                        "receiver_id": current_possessor,
-                        "start_frame": last_frame,
-                        "end_frame": frame_idx
-                    }
-                    self.passes.append(pass_record)
-                    print(f"[EVENT] Pass detected: Player {last_pid} -> Player {current_possessor} (completed at frame {frame_idx})")
+        # 1. Logic for "Potential Touch"
+        in_range = closest_player_id is not None and closest_dist <= self.POSSESSION_RADIUS
+
+        # 2. Update Possession State
+        if in_range:
+            if closest_player_id == self.current_possessor_id:
+                # Still has it
+                self.contact_frames += 1
+                self.loose_ball_frames = 0
+            else:
+                # Might be a change or new gain
+                self.contact_frames += 1
+                if self.contact_frames >= self.MIN_POSSESSION_FRAMES:
+                    # VALID CHANGE OF POSSESSION
+                    if self.current_possessor_id is not None:
+                        # Detect if this was a pass
+                        if ball_speed_kmh > self.PASS_SPEED_THRESHOLD:
+                            pass_record = {
+                                "passer_id": self.current_possessor_id,
+                                "receiver_id": closest_player_id,
+                                "start_frame": self.last_ball_possessor[1] if self.last_ball_possessor else 0,
+                                "end_frame": frame_idx,
+                                "ball_speed": round(ball_speed_kmh, 2)
+                            }
+                            self.passes.append(pass_record)
+                            print(f"[EVENT] Pass detected: Player {self.current_possessor_id} -> Player {closest_player_id} (Speed: {ball_speed_kmh:.1f} km/h)")
                     
-            self.last_ball_possessor = (current_possessor, frame_idx)
+                    self.current_possessor_id = closest_player_id
+                    self.last_ball_possessor = (closest_player_id, frame_idx)
+                    self.contact_frames = 0
+                    self.loose_ball_frames = 0
+        else:
+            # Ball is away from everyone
+            self.contact_frames = 0
+            if self.current_possessor_id is not None:
+                self.loose_ball_frames += 1
+                # Lose possession if away for too long or kicked hard
+                if self.loose_ball_frames > self.MIN_LOOSE_FRAMES or ball_speed_kmh > self.PASS_SPEED_THRESHOLD:
+                    self.current_possessor_id = None
+                    self.loose_ball_frames = 0
 
     def finalize(self):
         def convert_numpy(obj):

@@ -58,7 +58,7 @@ def main(args, progress_callback=None):
     conf = float(getattr(args, "conf", DEFAULT_CONF))
     iou = float(getattr(args, "iou", DEFAULT_IOU))
     imgsz = int(getattr(args, "imgsz", DEFAULT_IMGSZ))
-    device = getattr(args, "device", None)
+    device = getattr(args, "device", device)
     model_path = getattr(args, "model_path", MODEL_PATH)
 
     if isinstance(device, str) and device.isdigit():
@@ -99,7 +99,6 @@ def main(args, progress_callback=None):
 
     out_video_path = output_dir / "annotated_football_analysis.mp4"
     # Use avc1 (H.264) so the output is browser-playable in st.video()
-    # Falls back to mp4v if avc1 is not available on this system
     fourcc = cv2.VideoWriter_fourcc(*"avc1")
     out = cv2.VideoWriter(str(out_video_path), fourcc, fps, (width, height))
     if not out.isOpened():
@@ -111,7 +110,6 @@ def main(args, progress_callback=None):
         raise ValueError("Failed to read first frame.")
 
     # ── Initialise pipeline components ───────────────────────────────
-    model_path = "yolov8m_fixed.pt"
     if not Path(model_path).exists():
         from dashboard.config import MODEL_PATH as DASHBOARD_MODEL_PATH
         model_path = DASHBOARD_MODEL_PATH
@@ -132,7 +130,15 @@ def main(args, progress_callback=None):
         [width * 0.25, height * 0.3],
     ]
     dst_pts = [[0, 68], [105, 68], [105, 0], [0, 0]]
-    pitch_mapper    = PitchMapper(src_points=src_pts, dst_points=dst_pts)
+    
+    # Use the new dynamic calibration system
+    pitch_mapper    = PitchMapper.from_config(
+        video_path=str(input_path),
+        config_path="data/calibrations.json",
+        default_src=src_pts,
+        default_dst=dst_pts
+    )
+    
     speed_estimator = SpeedEstimator(fps=effective_fps, pitch_mapper=pitch_mapper, window_size=8)
     csv_builder     = TrackingCSVBuilder(pitch_mapper=pitch_mapper, fps=effective_fps)
     print("[PHASE] tracking and export components initialized", flush=True)
@@ -142,11 +148,11 @@ def main(args, progress_callback=None):
     max_frames = args.max_frames if args.max_frames > 0 else total_frames
     source_frame_idx = 0
     processed_frame_idx = 0
-    pbar       = tqdm(total=max_frames, unit="frame")
+    pbar       = tqdm(total=planned_frames, unit="frame")
 
     # ── Main processing loop ──────────────────────────────────────────
     while cap.isOpened():
-        if max_frames > 0 and processed_frame_idx >= max_frames:
+        if planned_frames > 0 and processed_frame_idx >= planned_frames:
             break
         ret, frame = cap.read()
         if not ret:
@@ -228,7 +234,8 @@ def main(args, progress_callback=None):
                 })
 
         data_exporter.log_frame(processed_frame_idx, frame_objs)
-        data_exporter.update_passes(processed_frame_idx, ball_pos_m, player_positions)
+        # Pass ball_speed_kmh for advanced possession/pass detection
+        data_exporter.update_passes(processed_frame_idx, ball_pos_m, player_positions, ball_speed_kmh=ball_speed_kmh)
         csv_builder.add_frame(processed_frame_idx, tracked, team_ids)
 
         annotated = visualizer.annotate_frame(
@@ -249,7 +256,7 @@ def main(args, progress_callback=None):
 
         # Notify caller of progress (used by Streamlit progress bar)
         if progress_callback is not None:
-            progress_callback(processed_frame_idx, max_frames)
+            progress_callback(processed_frame_idx, planned_frames)
 
     pbar.close()
     cap.release()
