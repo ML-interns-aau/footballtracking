@@ -1,70 +1,155 @@
-## Football Tracking Project
+# Football Tracker — Match Video Analytics Pipeline
 
-Computer vision pipeline for football match analysis using YOLOv8 detection, tracking, team classification, speed estimation, and pitch-space analytics.
+A Streamlit-based football analytics platform that turns raw match video into structured data: player tracking, team classification, possession analysis, speed estimation, and annotated video output.
 
-### Features
+---
 
-- Player and ball detection with YOLOv8
-- Multi-object tracking for player IDs across frames
-- Team assignment from dominant jersey colors
-- Camera motion compensation
-- Pixel-to-pitch coordinate mapping
-- Per-player speed and distance estimation
-- Frame-by-frame analytics export (CSV and JSON)
-- Team heatmap generation
-- Annotated output video rendering
+## Features
 
-### Project Structure
+| Feature | Description |
+|---|---|
+| **Player Detection** | YOLOv8 object detection (players + ball) |
+| **Multi-object Tracking** | ByteTrack with camera-motion compensation |
+| **Team Classification** | HSV jersey-colour clustering (KMeans) |
+| **Ball Tracking** | Kalman-filter gap filling with trail visualisation |
+| **Speed Estimation** | Homography-based pitch mapping → km/h |
+| **Possession Analysis** | Per-team and per-player possession percentages |
+| **Annotated Video** | Full output video with bounding boxes, trails, HUD |
+| **CSV / JSON Export** | Player summary, tracking data, pipeline summary |
+| **GPU Acceleration** | Automatic CUDA detection; falls back to CPU |
 
-```text
-football_tracking_project/
-	main.py
-	download_model.py
-	configs/
-	dashboard/
-	data/
-	results/
-	src/
-```
+---
 
-### Requirements
+## Quick Start
 
-- Python 3.10+
-- pip
-
-Install dependencies:
+### 1. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Model Weights
+> **GPU users:** install the CUDA-enabled PyTorch build first:
+> ```bash
+> pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+> ```
 
-The pipeline expects YOLO weights named `yolov8m_fixed.pt` in the project root.
+### 2. Add model weights
 
-You can download a compatible weight with:
-
-```bash
-python download_model.py
+Place your trained YOLO model at:
+```
+yolov8m_fixed.pt          # project root (preferred)
+# or
+models/best.pt            # fallback
 ```
 
-### Usage
-
-Run the pipeline:
+### 3. Run the app
 
 ```bash
-python main.py --input data/raw_videos/your_match.mp4 --output_dir results
+streamlit run dashboard/Home.py
 ```
 
-Outputs are written to the selected output directory, including:
+Open [http://localhost:8501](http://localhost:8501) in your browser.
 
-- `annotated_football_analysis.mp4`
-- `analytics.csv`
-- `analytics.json`
-- team heatmaps (`team_0_heatmap.png`, `team_1_heatmap.png`)
+---
 
-### Notes
+## Usage
 
-- The repository ignores large generated files and model binaries by default.
-- If you want to version model files or result artifacts, remove the related patterns from `.gitignore`.
+1. **Upload** — drag-and-drop a match video (MP4, AVI, MOV, MKV) or select one from `data/raw/`
+2. **Analysis** — click **Run Full Pipeline**; a live progress bar tracks processing
+3. **Results** — view possession charts, player stats, speed analysis, and download outputs
 
+---
+
+## Project Structure
+
+```
+football_tracking_project/
+├── dashboard/
+│   ├── Home.py                  # Streamlit entry point
+│   ├── config.py                # Paths and defaults
+│   ├── utils.py                 # Shared UI components
+│   └── pages/
+│       ├── upload_page.py
+│       ├── preprocess_page.py
+│       ├── analysis_page.py     # Pipeline runner (background thread)
+│       └── results_page.py
+├── src/
+│   └── pipeline/
+│       ├── detector.py          # YOLOv8 wrapper (GPU-aware)
+│       ├── tracker.py           # ByteTrack wrapper
+│       ├── team_classifier.py   # HSV KMeans team split
+│       ├── ball_tracker.py      # Ball gap filling
+│       ├── camera_motion.py     # Optical-flow compensation
+│       ├── pitch_mapper.py      # Homography transform
+│       ├── speed_estimator.py   # Velocity + distance
+│       ├── data_exporter.py     # CSV / JSON writer
+│       ├── heatmap_analyzer.py  # Position heatmaps
+│       ├── visualizer.py        # Frame annotation
+│       └── tracking_csv_builder.py
+├── main.py                      # Pipeline entry point (CLI + library)
+├── post_process_results.py      # Insight CSV generation
+├── models/
+│   └── best.pt                  # YOLO weights (not tracked in git)
+├── data/
+│   ├── raw/                     # Input videos
+│   ├── processed/               # Preprocessed videos
+│   ├── annotations/
+│   └── insights/                # Generated CSVs + JSON
+├── results/                     # Pipeline outputs (annotated video, CSVs)
+├── configs/
+│   └── config.yaml
+├── requirements.txt
+└── .streamlit/
+    └── config.toml              # Streamlit server config
+```
+
+---
+
+## CLI Usage
+
+```bash
+python main.py --input data/raw/match.mp4 --output_dir results --max_frames 0
+```
+
+| Argument | Default | Description |
+|---|---|---|
+| `--input` | required | Path to input video |
+| `--output_dir` | `results` | Directory for outputs |
+| `--max_frames` | `0` (all) | Limit frames processed (0 = full video) |
+
+---
+
+## Deployment
+
+### Streamlit Community Cloud
+
+1. Push to a public GitHub repository
+2. Go to [share.streamlit.io](https://share.streamlit.io) → New app
+3. Set **Main file path** to `dashboard/Home.py`
+4. Add model weights via Streamlit Secrets or a download script
+
+### Docker
+
+```dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 8501
+CMD ["streamlit", "run", "dashboard/Home.py", "--server.port=8501", "--server.address=0.0.0.0"]
+```
+
+---
+
+## Requirements
+
+- Python 3.10+
+- PyTorch 2.2+ (CUDA optional but recommended)
+- See `requirements.txt` for full list
+
+---
+
+## License
+
+MIT

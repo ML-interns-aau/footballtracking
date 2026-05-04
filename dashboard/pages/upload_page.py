@@ -75,8 +75,10 @@ def render():
             Preview
         </div>
         """, unsafe_allow_html=True)
-        if st.session_state.get("uploaded_video"):
-            st.video(st.session_state.uploaded_video)
+        vid_path = st.session_state.get("uploaded_video")
+        if vid_path and os.path.exists(vid_path):
+            with open(vid_path, "rb") as vf:
+                st.video(vf.read())
         else:
             st.markdown(f"""
             <div style="background:#0d0d12; border:1px dashed rgba(255,255,255,0.06);
@@ -89,7 +91,9 @@ def render():
     st.markdown("---")
     _, right_col = st.columns([3, 1])
     with right_col:
-        if st.session_state.get("uploaded_video"):
-            nav_button("Next: Run Analysis →", "Analysis")
+        video_ready = bool(st.session_state.get("uploaded_video")) and \
+                      os.path.exists(st.session_state.get("uploaded_video", ""))
+        if video_ready:
+            nav_button("Next: Preprocess →", "Preprocess")
         else:
-            st.button("Next: Run Analysis →", disabled=True, use_container_width=True)
+            st.button("Next: Preprocess →", disabled=True, use_container_width=True)

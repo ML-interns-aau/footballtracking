@@ -49,30 +49,74 @@ def _layout(**overrides):
 
 
 def _load_csv(name):
-    for d in [INSIGHTS_DIR, ANNOTATIONS_DIR]:
+    from dashboard.config import PROJECT_ROOT
+    search_dirs = [
+        INSIGHTS_DIR,
+        ANNOTATIONS_DIR,
+        os.path.join(PROJECT_ROOT, "results"),
+    ]
+    for d in search_dirs:
         p = os.path.join(d, name)
         if os.path.exists(p):
-            return pd.read_csv(p)
+            try:
+                return pd.read_csv(p)
+            except Exception:
+                pass
     return None
 
 
 def _load_summary():
-    p = os.path.join(INSIGHTS_DIR, "pipeline_summary.json")
-    if os.path.exists(p):
-        with open(p) as f:
-            return json.load(f)
+    from dashboard.config import PROJECT_ROOT
+    search_dirs = [
+        INSIGHTS_DIR,
+        os.path.join(PROJECT_ROOT, "results"),
+    ]
+    for d in search_dirs:
+        p = os.path.join(d, "pipeline_summary.json")
+        if os.path.exists(p):
+            try:
+                with open(p) as f:
+                    return json.load(f)
+            except Exception:
+                pass
     return {}
 
 
 def _find_tracked_video():
+    # 1. Prefer the path stored in session state (set by analysis_page)
     v = st.session_state.get("tracked_video")
     if v and os.path.exists(v):
         return v
+
+    # 2. Check the canonical results/ output path
+    from dashboard.config import PROJECT_ROOT
+    results_dir = os.path.join(PROJECT_ROOT, "results")
+    canonical = os.path.join(results_dir, "annotated_football_analysis.mp4")
+    if os.path.exists(canonical):
+        return canonical
+
+    # 3. Any .mp4 in results/
+    if os.path.exists(results_dir):
+        for f in sorted(os.listdir(results_dir)):
+            if f.endswith(".mp4"):
+                return os.path.join(results_dir, f)
+
+    # 4. Legacy: processed/ directory
     if os.path.exists(PROCESSED_DIR):
         for f in sorted(os.listdir(PROCESSED_DIR)):
-            if "tracked" in f and f.endswith(".mp4"):
+            if f.endswith(".mp4"):
                 return os.path.join(PROCESSED_DIR, f)
+
     return None
+
+
+def _read_video_bytes(path: str) -> bytes | None:
+    """Read video file as bytes for st.video(). Returns None if file missing."""
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except Exception:
+        return None
 
 
 def render():
@@ -106,8 +150,10 @@ def render():
         st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
 
     if tracked_video:
-        with st.expander("▶  Tracked Video Preview"):
-            st.video(tracked_video)
+        video_bytes = _read_video_bytes(tracked_video)
+        if video_bytes:
+            with st.expander("▶  Tracked Video Preview"):
+                st.video(video_bytes)
 
     st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
 

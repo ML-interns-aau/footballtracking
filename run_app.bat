@@ -1,0 +1,3 @@
+@echo off
+echo Starting Football Tracker...
+venv\Scripts\streamlit.exe run dashboard/Home.py
