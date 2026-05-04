@@ -1,0 +1,26 @@
+# Development Environment Configuration
+# Overrides for local development and testing
+
+# =============================================================================
+# DEV OVERRIDES
+# =============================================================================
+
+# Use smaller test videos
+detection:
+  confidence_threshold: 0.25  # Lower threshold for testing
+  iou_threshold: 0.35
+  image_size: 640             # Smaller for faster processing
+
+# Faster tracking for dev
+tracking:
+  track_buffer: 30            # Shorter buffer
+
+# Aggressive performance limits
+performance:
+  max_frames_default: 100     # Only process 100 frames max in dev
+  frame_batch_size: 1
+  memory_warning_mb: 1024     # Lower memory threshold
+
+# Debug output
+output:
+  save_intermediate: true     # Save intermediate frames for debugging

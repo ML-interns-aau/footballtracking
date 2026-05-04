@@ -1,0 +1,43 @@
+# Production Environment Configuration
+# Optimized for full match analysis on production servers
+
+# =============================================================================
+# PRODUCTION OVERRIDES
+# =============================================================================
+
+# Higher quality for production analysis
+detection:
+  confidence_threshold: 0.35  # More strict to reduce false positives
+  iou_threshold: 0.45
+  image_size: 1280            # Full resolution
+
+# Robust tracking for long matches
+tracking:
+  track_threshold: 0.25
+  track_buffer: 90            # Longer buffer for match continuity
+  match_threshold: 0.85       # Stricter matching
+
+# Extended ball tracking for full match
+ball:
+  max_trail_length: 50        # Longer trail for analysis
+  max_missed_frames: 45       # More tolerant for occlusions
+
+# Conservative team classification
+team_classification:
+  history_length: 20          # More frames for stability
+  refit_interval: 200         # Less frequent refitting
+
+# Full video processing
+video:
+  target_fps: 25              # Higher FPS for smooth analysis
+  resize_width: 1920          # HD resolution
+
+# Production performance settings
+performance:
+  max_frames_default: 0       # Process all frames (0 = unlimited)
+  frame_batch_size: 5         # Larger batches for efficiency
+  memory_warning_mb: 4096     # Higher threshold for production
+
+# Standard output
+output:
+  save_intermediate: false    # No debug frames in production

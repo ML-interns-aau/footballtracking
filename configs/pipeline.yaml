@@ -1,0 +1,126 @@
+# Football Analytics Pipeline Configuration
+# All hardcoded thresholds, paths, and settings centralized here
+
+# =============================================================================
+# MODEL SETTINGS
+# =============================================================================
+model:
+  path: "yolov8m_fixed.pt"  # Relative to project root
+  device: "auto"  # Options: auto, cpu, cuda, cuda:0, cuda:1, or specific GPU index
+  
+# =============================================================================
+# DETECTION PARAMETERS (YOLO)
+# =============================================================================
+detection:
+  confidence_threshold: 0.30  # Minimum confidence for detections (was 0.35 in app/config.py)
+  iou_threshold: 0.40          # IoU threshold for NMS
+  image_size: 1280             # Input image size for model
+  
+# =============================================================================
+# TRACKING PARAMETERS (ByteTrack)
+# =============================================================================
+tracking:
+  track_threshold: 0.20        # Detection threshold for tracking
+  track_buffer: 60             # Frames to keep lost tracks
+  match_threshold: 0.80        # IoU threshold for matching
+  
+# =============================================================================
+# BALL TRACKING
+# =============================================================================
+ball:
+  max_trail_length: 25         # Number of past positions to keep
+  max_missed_frames: 30        # Frames before ball track is lost
+  
+# =============================================================================
+# TEAM CLASSIFICATION
+# =============================================================================
+team_classification:
+  n_teams: 2                   # Number of teams (usually 2)
+  history_length: 15           # Frames for color histogram
+  refit_interval: 150          # Frames between K-means refitting
+  
+# =============================================================================
+# PITCH DIMENSIONS (Standard FIFA pitch)
+# =============================================================================
+pitch:
+  width_m: 105.0              # Pitch width in meters
+  height_m: 68.0              # Pitch height in meters
+  
+# =============================================================================
+# VIDEO PROCESSING
+# =============================================================================
+video:
+  target_fps: 15               # Target processing FPS (0 = use source FPS)
+  resize_width: 1280           # Resize width (0 = no resize, keep aspect ratio)
+  codec_preference: "avc1"     # Primary codec (avc1 = H.264)
+  codec_fallback: "mp4v"       # Fallback codec
+  
+# =============================================================================
+# SPEED ESTIMATION
+# =============================================================================
+speed:
+  window_size: 8               # Frames for rolling average
+  min_frames_for_speed: 3      # Minimum frames before calculating speed
+  
+# =============================================================================
+# POSSESSION DETECTION
+# =============================================================================
+possession:
+  max_distance_m: 2.0          # Maximum distance (meters) for possession claim
+  
+# =============================================================================
+# HEATMAP GENERATION
+# =============================================================================
+heatmap:
+  bins_x: 105                  # X-axis bins (1 per meter)
+  bins_y: 68                   # Y-axis bins (1 per meter)
+  
+# =============================================================================
+# CALIBRATION (Default points when no config file exists)
+# =============================================================================
+calibration:
+  # These are default points - will be overridden by configs/homography.json if it exists
+  # Source points (video coordinates) - approximate penalty box area
+  default_src_points:
+    - [0, 540]          # Bottom-left (will be scaled by video dimensions)
+    - [960, 540]        # Bottom-right
+    - [720, 162]        # Top-right
+    - [240, 162]        # Top-left
+  
+  # Destination points (pitch coordinates in meters)
+  default_dst_points:
+    - [0, 68]           # Bottom-left corner
+    - [105, 68]         # Bottom-right corner
+    - [105, 0]          # Top-right corner
+    - [0, 0]            # Top-left corner
+    
+# =============================================================================
+# CLASS MAPPINGS (Do not change unless model changes)
+# =============================================================================
+classes:
+  ball_id: 0
+  goalkeeper_id: 1
+  player_id: 2
+  referee_id: 3
+  
+  labels:
+    0: "Ball"
+    1: "GK"
+    2: "Player"
+    3: "Referee"
+    
+# =============================================================================
+# OUTPUT SETTINGS
+# =============================================================================
+output:
+  video_format: "mp4"
+  csv_format: "csv"  # or "parquet" for compressed storage
+  save_intermediate: false  # Save intermediate frames (for debugging)
+  
+# =============================================================================
+# PERFORMANCE / RESOURCE LIMITS
+# =============================================================================
+performance:
+  max_frames_default: 0        # 0 = process all frames
+  frame_batch_size: 1        # Frames to process before yielding (for UI updates)
+  memory_warning_mb: 2048     # Warn if memory exceeds this

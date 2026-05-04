@@ -13,6 +13,7 @@ from app.config import (
     DEFAULT_TARGET_FPS,
     DEFAULT_RESIZE_W,
 )
+from src.config import CONFIG  # New centralized configuration
 from src.pipeline.detector import FootballDetector
 from src.pipeline.tracker import FootballTracker
 from src.pipeline.team_classifier import TeamClassifier
@@ -50,6 +51,16 @@ def main(args, progress_callback=None):
         Called after every frame so callers (e.g. Streamlit) can update a
         progress bar without blocking the UI.
     """
+    # Validate configuration on startup
+    try:
+        CONFIG.validate(raise_on_error=True)
+        if CONFIG.get_environment() != 'default':
+            print(f"[CONFIG] Environment: {CONFIG.get_environment()}", flush=True)
+            print(f"[CONFIG] Loaded from: {CONFIG.config_path}", flush=True)
+    except ValueError as e:
+        print(f"[CONFIG ERROR] {e}", flush=True)
+        raise
+    
     device = _get_device()
 
     input_path = Path(args.input)
@@ -125,13 +136,32 @@ def main(args, progress_callback=None):
         from dashboard.config import MODEL_PATH as DASHBOARD_MODEL_PATH
         model_path = DASHBOARD_MODEL_PATH
 
-    detector        = FootballDetector(model_path=model_path, conf=0.30, iou=0.40, device=device)
-    tracker         = FootballTracker(track_thresh=0.20, track_buffer=60, match_thresh=0.80)
-    team_classifier = TeamClassifier(n_teams=2, history_len=15, refit_interval=150)
-    ball_tracker    = BallTracker(max_trail=25, max_missed=30)
+    detector        = FootballDetector(
+        model_path=model_path,
+        conf=CONFIG.get('detection.confidence_threshold', 0.30),
+        iou=CONFIG.get('detection.iou_threshold', 0.40),
+        device=device
+    )
+    tracker         = FootballTracker(
+        track_thresh=CONFIG.get('tracking.track_threshold', 0.20),
+        track_buffer=CONFIG.get('tracking.track_buffer', 60),
+        match_thresh=CONFIG.get('tracking.match_threshold', 0.80)
+    )
+    team_classifier = TeamClassifier(
+        n_teams=CONFIG.get('team_classification.n_teams', 2),
+        history_len=CONFIG.get('team_classification.history_length', 15),
+        refit_interval=CONFIG.get('team_classification.refit_interval', 150)
+    )
+    ball_tracker    = BallTracker(
+        max_trail=CONFIG.get('ball.max_trail_length', 25),
+        max_missed=CONFIG.get('ball.max_missed_frames', 30)
+    )
     camera_motion   = CameraMotionEstimator(initial_frame)
     data_exporter   = DataExporter(output_dir=str(game_output_dir))
-    heatmap_analyzer = HeatmapAnalyzer(pitch_width=105, pitch_height=68)
+    heatmap_analyzer = HeatmapAnalyzer(
+        pitch_width=CONFIG.get('pitch.width_m', 105),
+        pitch_height=CONFIG.get('pitch.height_m', 68)
+    )
     visualizer      = PipelineVisualizer()
 
     src_pts = [
@@ -155,7 +185,11 @@ def main(args, progress_callback=None):
         # Fall back to default points
         pitch_mapper = PitchMapping(src_pts, dst_pts)
     
-    speed_estimator = SpeedEstimator(fps=effective_fps, pitch_mapper=pitch_mapper, window_size=8)
+    speed_estimator = SpeedEstimator(
+        fps=effective_fps,
+        pitch_mapper=pitch_mapper,
+        window_size=CONFIG.get('speed.window_size', 8)
+    )
     csv_builder     = TrackingCSVBuilder(pitch_mapper=pitch_mapper, fps=effective_fps)
     player_builder  = PlayerSummaryCSVBuilder()
     possession_builder = PossessionSummaryCSVBuilder()
@@ -272,7 +306,7 @@ def main(args, progress_callback=None):
             if class_id == 0 and t_id > 0:  # Player only
                 player_pos = pitch_mapper.transform_point(((bbox[0] + bbox[2]) / 2, bbox[3]))
                 dist_to_ball = ((player_pos[0] - ball_pos_m[0])**2 + (player_pos[1] - ball_pos_m[1])**2)**0.5
-                possession = dist_to_ball < 2.0
+                possession = dist_to_ball < CONFIG.get('possession.max_distance_m', 2.0)
             
             tracked_objects.append({
                 'tracker_id': t_id,

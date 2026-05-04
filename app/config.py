@@ -4,6 +4,13 @@
 import os
 from pathlib import Path
 
+# Import centralized configuration (with fallback for imports during setup)
+try:
+    from src.config import CONFIG
+    _config_loaded = True
+except ImportError:
+    _config_loaded = False
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # ── Data directories ─────────────────────────────────────────────────────────
@@ -29,11 +36,15 @@ CLASS_LABELS     = {0: "Ball", 1: "GK", 2: "Player", 3: "Referee"}
 TEAM_LABELS      = {0: "Team A", 1: "Team B", -1: "Unassigned"}
 
 # ── Pipeline defaults ────────────────────────────────────────────────────────
-DEFAULT_CONF       = 0.35
-DEFAULT_IOU        = 0.45
-DEFAULT_IMGSZ      = 1280
-DEFAULT_TARGET_FPS = 15
-DEFAULT_RESIZE_W   = 1280
+# Use centralized configuration if available, fall back to hardcoded values
+defaults = CONFIG.get_dict('detection') if _config_loaded else {}
+video_defaults = CONFIG.get_dict('video') if _config_loaded else {}
+
+DEFAULT_CONF       = defaults.get('confidence_threshold', 0.35)
+DEFAULT_IOU        = defaults.get('iou_threshold', 0.45)
+DEFAULT_IMGSZ      = defaults.get('image_size', 1280)
+DEFAULT_TARGET_FPS = video_defaults.get('target_fps', 15)
+DEFAULT_RESIZE_W   = video_defaults.get('resize_width', 1280)
 
 # ── Ensure directories exist ────────────────────────────────────────────────
 for _d in [RAW_DIR, PROCESSED_DIR, ANNOTATIONS_DIR, INSIGHTS_DIR]:
