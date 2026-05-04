@@ -45,7 +45,7 @@ models/best.pt            # fallback
 ### 3. Run the app
 
 ```bash
-streamlit run dashboard/Home.py
+streamlit run app/Home.py
 ```
 
 Open [http://localhost:8501](http://localhost:8501) in your browser.
