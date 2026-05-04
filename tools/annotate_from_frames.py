@@ -22,7 +22,7 @@ from src.pipeline.detector import FootballDetector
 from src.pipeline.tracker import FootballTracker
 from src.pipeline.team_classifier import TeamClassifier
 from src.pipeline.camera_motion import CameraMotionEstimator
-from src.pipeline.pitch_mapper import PitchMapper
+from src.homography.pitch_mapping import PitchMapping
 from src.pipeline.speed_estimator import SpeedEstimator
 from src.pipeline.ball_tracker import BallTracker
 from src.pipeline.heatmap_analyzer import HeatmapAnalyzer
@@ -69,7 +69,7 @@ def main(args):
 
     src_pts = [[0, height], [width, height], [width * 0.75, height * 0.3], [width * 0.25, height * 0.3]]
     dst_pts = [[0, 68],     [105, 68],       [105, 0],                       [0, 0]]
-    pitch_mapper    = PitchMapper(src_points=src_pts, dst_points=dst_pts)
+    pitch_mapper    = PitchMapping(src_points=src_pts, dst_points=dst_pts)
     speed_estimator = SpeedEstimator(fps=fps, pitch_mapper=pitch_mapper, window_size=8)
     csv_builder     = TrackingCSVBuilder(pitch_mapper=pitch_mapper, fps=fps)
 
@@ -83,6 +83,17 @@ def main(args):
         detections          = detector.detect(frame)
         tracked             = tracker.update(detections)
         team_ids            = team_classifier.assign_teams(frame, tracked)
+
+        if pitch_mapper is not None:
+            for i in range(len(tracked)):
+                if team_ids[i] == -2 and tracked.class_id[i] == 0:
+                    x1, y1, x2, y2 = tracked.xyxy[i]
+                    foot_x, foot_y = (x1 + x2) / 2, y2
+                    px, py = pitch_mapper.transform_point((foot_x, foot_y))
+                    if px < 25:
+                        team_ids[i] = -3 # GK0
+                    elif px > 80:
+                        team_ids[i] = -4 # GK1
         cam_dx, cam_dy      = camera_motion.update(frame)
 
         ball_mask           = tracked.class_id == 32

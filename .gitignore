@@ -33,3 +33,10 @@ test_results/
 
 # Notebook checkpoints
 .ipynb_checkpoints/
+
+# Observability logs
+logs/
+HOMOGRAPHY.md
+OBSERVABILITY.md
+new.md
+.gitignore

@@ -1,6 +1,8 @@
 # dashboard/utils.py
 """Shared UI — navbar, theme, helpers."""
 
+from __future__ import annotations
+
 import streamlit as st
 
 ACCENT       = "#dc2626"

@@ -1,6 +1,12 @@
 import supervision as sv
 from ultralytics import YOLO
 import numpy as np
+import pathlib
+import platform
+
+# Fix for loading models saved on Linux (PosixPath) on Windows
+if platform.system() == 'Windows':
+    pathlib.PosixPath = pathlib.WindowsPath
 
 
 class FootballDetector:

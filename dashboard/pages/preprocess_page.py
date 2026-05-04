@@ -7,6 +7,8 @@ responsive. Saves the output to data/processed/ and stores the path
 in session state so the Analysis page picks it up automatically.
 """
 
+from __future__ import annotations
+
 import os
 import time
 import threading

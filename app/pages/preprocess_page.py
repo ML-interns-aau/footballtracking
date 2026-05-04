@@ -103,6 +103,52 @@ def render():
             st.markdown(metric_card("Output Frames", f"{pinfo['frames']:,}"), unsafe_allow_html=True)
 
         st.markdown("---")
+        st.markdown("##### Homography Calibration (Optional)")
+        st.write("To get accurate player speeds and pitch maps, click the 4 corners of the pitch area visible in the camera. Order: **Bottom-Left, Bottom-Right, Top-Right, Top-Left**.")
+        
+        try:
+            from streamlit_image_coordinates import streamlit_image_coordinates
+            from src.homography.pitch_mapping import PitchMapping
+            
+            cap = cv2.VideoCapture(proc)
+            ret, frame = cap.read()
+            cap.release()
+            
+            if ret:
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                value = streamlit_image_coordinates(frame_rgb, key="pil")
+                
+                if value is not None:
+                    point = [value["x"], value["y"]]
+                    if "src_points" not in st.session_state:
+                        st.session_state.src_points = []
+                    
+                    if point not in st.session_state.src_points and len(st.session_state.src_points) < 4:
+                        st.session_state.src_points.append(point)
+                        st.rerun()
+                
+                points = st.session_state.get("src_points", [])
+                if points:
+                    st.write(f"**Points selected ({len(points)}/4):** {points}")
+                    if st.button("Clear Points"):
+                        st.session_state.src_points = []
+                        st.rerun()
+                        
+                if len(points) == 4:
+                    st.success("4 points collected!")
+                    if st.button("Save Calibration & Lock", type="primary"):
+                        dst_pts = [[0, 68], [105, 68], [105, 0], [0, 0]]
+                        mapper = PitchMapping(points, dst_pts)
+                        mapper.save_config("configs/homography.json")
+                        st.session_state.calibration_saved = True
+                        st.rerun()
+                        
+                if st.session_state.get("calibration_saved", False):
+                    st.success("✅ Calibration saved to `configs/homography.json`. The pipeline will now use this for accurate mapping!")
+        except ImportError:
+            st.warning("`streamlit-image-coordinates` is not installed. Please pip install it to use the visual calibration tool.")
+
+        st.markdown("---")
         back, _, next_col = st.columns([1, 2, 1])
         with back:
             nav_button("← Back to Upload", "Upload", key="pre_back_done")

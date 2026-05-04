@@ -14,7 +14,7 @@ ANNOTATIONS_DIR = os.path.join(DATA_DIR, "annotations")
 INSIGHTS_DIR    = os.path.join(DATA_DIR, "insights")
 
 # ── Model ────────────────────────────────────────────────────────────────────
-_default_model = os.path.join(PROJECT_ROOT, "models", "best.pt")
+_default_model = os.path.join(PROJECT_ROOT, "models", "yolov8m_fixed.pt")
 # If a compatible weight exists at the project root (used by main.py), prefer it.
 _root_model = os.path.join(PROJECT_ROOT, "yolov8m_fixed.pt")
 MODEL_PATH = _root_model if os.path.exists(_root_model) else _default_model

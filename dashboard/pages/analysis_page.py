@@ -6,6 +6,8 @@ Runs the pipeline in a background thread so the Streamlit UI stays
 responsive and can display a live progress bar.
 """
 
+from __future__ import annotations
+
 import os
 import json
 import time
