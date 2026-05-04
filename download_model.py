@@ -24,5 +24,5 @@ def download_file(url, local_filename):
     print(f"\nDownload complete: {local_filename}")
 
 if __name__ == "__main__":
-    url = "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8n.pt"
-    download_file(url, "yolov8n.pt")
+    url = "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8m.pt"
+    download_file(url, "yolov8m_fixed.pt")

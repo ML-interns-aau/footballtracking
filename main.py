@@ -1,31 +1,27 @@
+import cv2
 import argparse
+import numpy as np
 from pathlib import Path
+from tqdm import tqdm
+
+from src.pipeline.detector import FootballDetector
+from src.pipeline.tracker import FootballTracker
+from src.pipeline.team_classifier import TeamClassifier
+from src.pipeline.camera_motion import CameraMotionEstimator
+from src.pipeline.pitch_mapper import PitchMapper
+from src.pipeline.speed_estimator import SpeedEstimator
+from src.pipeline.ball_tracker import BallTracker
+from src.pipeline.data_exporter import DataExporter
+from src.pipeline.heatmap_analyzer import HeatmapAnalyzer
+from src.pipeline.visualizer import PipelineVisualizer
+from src.pipeline.tracking_csv_builder import TrackingCSVBuilder
 
 
 def main(args):
-    import cv2
-    import numpy as np
-    from tqdm import tqdm
-
-    from src.pipeline.detector import FootballDetector
-    from src.pipeline.tracker import FootballTracker
-    from src.pipeline.team_classifier import TeamClassifier
-    from src.pipeline.camera_motion import CameraMotionEstimator
-    from src.pipeline.pitch_mapper import PitchMapper
-    from src.pipeline.speed_estimator import SpeedEstimator
-    from src.pipeline.ball_tracker import BallTracker
-    from src.pipeline.data_exporter import DataExporter
-    from src.pipeline.heatmap_analyzer import HeatmapAnalyzer
-    from src.pipeline.visualizer import PipelineVisualizer
-    from src.pipeline.tracking_csv_builder import TrackingCSVBuilder
-
     input_path = Path(args.input)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # ------------------------------------------------------------------ #
-    #  Video I/O
-    # ------------------------------------------------------------------ #
     cap = cv2.VideoCapture(str(input_path))
     if not cap.isOpened():
         raise FileNotFoundError(f"Cannot open video: {input_path}")
@@ -43,11 +39,7 @@ def main(args):
     if not ret:
         raise ValueError("Failed to read first frame.")
 
-    # ------------------------------------------------------------------ #
-    #  Component initialisation
-    # ------------------------------------------------------------------ #
-    print("Initializing components...")
-    detector       = FootballDetector(model_path="yolov8n.pt", conf=0.30, iou=0.40)
+    detector       = FootballDetector(model_path="yolov8m_fixed.pt", conf=0.30, iou=0.40)
     tracker        = FootballTracker(track_thresh=0.20, track_buffer=60, match_thresh=0.80)
     team_classifier = TeamClassifier(n_teams=2, history_len=15, refit_interval=150)
     ball_tracker   = BallTracker(max_trail=25, max_missed=30)
@@ -56,7 +48,6 @@ def main(args):
     heatmap_analyzer = HeatmapAnalyzer(pitch_width=105, pitch_height=68)
     visualizer     = PipelineVisualizer()
 
-    # Homography: map pitch corners (pixel) → real-world metres
     src_pts = [[0, height], [width, height], [width * 0.75, height * 0.3], [width * 0.25, height * 0.3]]
     dst_pts = [[0, 68],     [105, 68],       [105, 0],                       [0, 0]]
     pitch_mapper    = PitchMapper(src_points=src_pts, dst_points=dst_pts)
@@ -65,11 +56,7 @@ def main(args):
 
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
-    # ------------------------------------------------------------------ #
-    #  Main loop
-    # ------------------------------------------------------------------ #
     max_frames = args.max_frames if args.max_frames > 0 else total_frames
-    print(f"Processing {max_frames} / {total_frames} frames at {fps:.1f} fps...")
     frame_idx = 0
     pbar = tqdm(total=max_frames, unit="frame")
 
@@ -80,24 +67,15 @@ def main(args):
         if not ret:
             break
 
-        # 1. Detect all objects
         detections = detector.detect(frame)
-
-        # 2. Track players (ByteTrack); ball gets fixed id -99
         tracked = tracker.update(detections)
-
-        # 3. Classify teams; referees get team_id = -2
         team_ids = team_classifier.assign_teams(frame, tracked)
-
-        # 4. Camera-motion compensation
         cam_dx, cam_dy = camera_motion.update(frame)
 
-        # 5. Ball tracker (Kalman + optical flow fallback)
         ball_mask       = tracked.class_id == 32
         ball_detections = tracked[ball_mask] if np.any(ball_mask) else None
         ball_cx, ball_cy, ball_predicted = ball_tracker.update(frame, ball_detections)
 
-        # 6. Speed estimation — players
         player_pixels      = []
         player_tracker_ids = []
         for i, (bbox, class_id, t_id) in enumerate(
@@ -106,7 +84,7 @@ def main(args):
             if class_id != 0 or t_id is None:
                 continue
             x1, y1, x2, y2 = bbox
-            player_pixels.append([(x1 + x2) / 2, y2])   # foot position
+            player_pixels.append([(x1 + x2) / 2, y2])
             player_tracker_ids.append(t_id)
 
         if player_pixels:
@@ -115,7 +93,6 @@ def main(args):
                 np.array(player_pixels), cam_dx, cam_dy
             )
 
-        # 7. Ball speed estimation (using centre-bottom of ball position in pixel space)
         ball_pos_m = pitch_mapper.transform_point((ball_cx, ball_cy))
         speed_estimator.estimate_speed(
             frame_idx,
@@ -125,7 +102,6 @@ def main(args):
         )
         ball_speed_kmh, _, _ = speed_estimator.get_stats(BallTracker.BALL_ID)
 
-        # 8. Build frame objects for export / heatmap
         frame_objs       = []
         player_positions = {}
 
@@ -158,11 +134,8 @@ def main(args):
 
         data_exporter.log_frame(frame_idx, frame_objs)
         data_exporter.update_passes(frame_idx, ball_pos_m, player_positions)
-        
-        # Log to structured CSV builder
         csv_builder.add_frame(frame_idx, tracked, team_ids)
 
-        # 9. Annotate & write frame
         annotated = visualizer.annotate_frame(
             frame          = frame,
             detections     = tracked,
@@ -178,9 +151,6 @@ def main(args):
         frame_idx += 1
         pbar.update(1)
 
-    # ------------------------------------------------------------------ #
-    #  Cleanup + exports
-    # ------------------------------------------------------------------ #
     pbar.close()
     cap.release()
     out.release()
@@ -192,24 +162,11 @@ def main(args):
     tracking_csv_path = output_dir / "tracking_output.csv"
     csv_builder.finalize_and_write(tracking_csv_path)
 
-    print("\n✅ Pipeline execution complete!")
-    print(f"   Annotated video  : {out_video_path}")
-    print(f"   Tracking CSV     : {tracking_csv_path}")
-    print(f"   Data exports     : {output_dir}")
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Football Analytics Pipeline - Improved")
-    parser.add_argument("--input", type=str, required=True, help="Path to input video")
-    parser.add_argument("--output_dir", type=str, default="results", help="Output directory")
-    parser.add_argument("--max_frames", type=int, default=0, help="Limit processing to N frames (0=all)")
-    return parser.parse_args()
-
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Football Analytics Pipeline — Improved")
-    parser.add_argument("--input",      type=str, required=True, help="Path to input video")
-    parser.add_argument("--output_dir", type=str, default="results", help="Output directory")
-    parser.add_argument("--max_frames", type=int, default=0, help="Limit processing to N frames (0=all)")
-    args = parse_args()
+    parser = argparse.ArgumentParser(description="Football Analytics Pipeline")
+    parser.add_argument("--input",      type=str, required=True)
+    parser.add_argument("--output_dir", type=str, default="results")
+    parser.add_argument("--max_frames", type=int, default=0)
+    args = parser.parse_args()
     main(args)

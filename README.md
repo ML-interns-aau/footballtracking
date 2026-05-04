@@ -40,7 +40,7 @@ pip install -r requirements.txt
 
 ### Model Weights
 
-The pipeline expects YOLO weights named `yolov8n.pt` in the project root.
+The pipeline expects YOLO weights named `yolov8m_fixed.pt` in the project root.
 
 You can download a compatible weight with:
 
@@ -67,3 +67,4 @@ Outputs are written to the selected output directory, including:
 
 - The repository ignores large generated files and model binaries by default.
 - If you want to version model files or result artifacts, remove the related patterns from `.gitignore`.
+

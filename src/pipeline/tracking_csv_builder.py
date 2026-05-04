@@ -1,15 +1,3 @@
-"""
-tracking_csv_builder.py
-========================
-Builds a professional-grade football tracking CSV with:
-  - Persistent track IDs (live mode: ByteTrack IDs / offline mode: IoU-based assignment)
-  - Motion features: velocity, speed, acceleration, direction (EMA-smoothed)
-  - Pitch coordinates via homography (PitchMapper)
-  - Football context: possession, role, goalkeeper flag, team side, zone, distance to ball
-  - Missing-frame interpolation (linear, up to 10-frame gaps)
-  - Clean 27-column output CSV ready for analysis / ML
-"""
-
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -17,11 +5,7 @@ from typing import Dict, List, Any, Optional, Tuple
 from collections import defaultdict
 
 
-# ---------------------------------------------------------------------------
-#  IoU helper – used for offline nearest-neighbour tracker
-# ---------------------------------------------------------------------------
 def _iou(boxA: np.ndarray, boxB: np.ndarray) -> float:
-    """Compute IoU between two [x1,y1,x2,y2] boxes."""
     xa1, ya1, xa2, ya2 = boxA
     xb1, yb1, xb2, yb2 = boxB
     inter_x1 = max(xa1, xb1); inter_y1 = max(ya1, yb1)
@@ -33,16 +17,7 @@ def _iou(boxA: np.ndarray, boxB: np.ndarray) -> float:
     return inter / union if union > 0 else 0.0
 
 
-# ---------------------------------------------------------------------------
-#  Lightweight IoU nearest-neighbour tracker (offline mode only)
-# ---------------------------------------------------------------------------
 class _IoUTracker:
-    """
-    Frame-by-frame IoU tracker used when ByteTrack IDs are unavailable.
-    Assigns stable track_ids by matching each new detection to the closest
-    existing active track (IoU >= iou_threshold). Unmatched detections get
-    a new incrementing ID. Tracks inactive for > max_missed frames are dropped.
-    """
     def __init__(self, iou_threshold: float = 0.30, max_missed: int = 10):
         self.iou_threshold = iou_threshold
         self.max_missed    = max_missed
@@ -99,15 +74,7 @@ class _IoUTracker:
             del self._tracks[tid]
 
 
-# ---------------------------------------------------------------------------
-#  Main class
-# ---------------------------------------------------------------------------
 class TrackingCSVBuilder:
-    """
-    Collects per-frame detections (live or from CSV) and produces a structured
-    tracking CSV with all spatial, motion, pitch, and football-context features.
-    """
-
     BALL_CLASS_ID    = 32
     PITCH_W          = 105.0
     PITCH_H          = 68.0
@@ -142,9 +109,6 @@ class TrackingCSVBuilder:
         self._offline_tracker    = _IoUTracker()
         self._records: List[Dict[str, Any]] = []
 
-    # ------------------------------------------------------------------
-    #  Public API — LIVE mode
-    # ------------------------------------------------------------------
     def add_frame(self, frame_idx: int, detections, team_ids=None):
         if detections is None or len(detections) == 0:
             return
@@ -170,9 +134,6 @@ class TrackingCSVBuilder:
                 confidence=conf, extra=-1,
             ))
 
-    # ------------------------------------------------------------------
-    #  Public API — OFFLINE mode
-    # ------------------------------------------------------------------
     def load_from_csv(self, input_path: str):
         df = pd.read_csv(input_path)
         for frame_idx, grp in df.groupby("frame"):
@@ -196,15 +157,11 @@ class TrackingCSVBuilder:
                     extra=int(row.get("extra", -1)),
                 ))
 
-    # ------------------------------------------------------------------
-    #  Public API — export
-    # ------------------------------------------------------------------
     def finalize_and_write(self, output_path) -> pd.DataFrame:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         if not self._records:
-            print("[TrackingCSVBuilder] No detections — nothing to export.")
             return pd.DataFrame(columns=self.CSV_COLUMNS)
 
         df = pd.DataFrame(self._records)
@@ -219,12 +176,8 @@ class TrackingCSVBuilder:
         num_cols = final.select_dtypes(include=[np.number]).columns
         final[num_cols] = final[num_cols].round(4)
         final.to_csv(output_path, index=False)
-        print(f"[TrackingCSVBuilder] Success: Tracking CSV saved to {output_path}  ({len(final)} rows)")
         return final
 
-    # ------------------------------------------------------------------
-    #  Internal helpers
-    # ------------------------------------------------------------------
     @staticmethod
     def _make_record(frame_idx, track_id, team_id, player_id,
                      bb_left, bb_top, bb_width, bb_height,
@@ -278,9 +231,12 @@ class TrackingCSVBuilder:
         results = []
         for tid, grp in df.groupby("track_id"):
             grp = grp.sort_values("frame").copy()
+            grp["pitch_x"] = pd.to_numeric(grp["pitch_x"], errors='coerce')
+            grp["pitch_y"] = pd.to_numeric(grp["pitch_y"], errors='coerce')
+            
             raw_vx = grp["pitch_x"].diff() / dt
             raw_vy = grp["pitch_y"].diff() / dt
-            raw_sp = np.sqrt(raw_vx**2 + raw_vy**2)
+            raw_sp = (raw_vx**2 + raw_vy**2).pow(0.5)
             vx = raw_vx.ewm(alpha=self.ema_alpha, adjust=False).mean()
             vy = raw_vy.ewm(alpha=self.ema_alpha, adjust=False).mean()
             sp = raw_sp.ewm(alpha=self.ema_alpha, adjust=False).mean()
@@ -305,11 +261,11 @@ class TrackingCSVBuilder:
             ball_pos = pd.DataFrame(columns=["frame", "_ball_x", "_ball_y"]).set_index("frame")
         df = df.merge(ball_pos, on="frame", how="left")
         for col in ["pitch_x", "pitch_y", "_ball_x", "_ball_y"]:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-        df["distance_to_ball"] = np.hypot(
-            df["pitch_x"] - df["_ball_x"],
-            df["pitch_y"] - df["_ball_y"],
-        ).fillna(-1.0)
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        dist_sq = (df["pitch_x"] - df["_ball_x"]).pow(2) + (df["pitch_y"] - df["_ball_y"]).pow(2)
+        df["distance_to_ball"] = dist_sq.pow(0.5).fillna(-1.0)
 
         df["possession"] = -1
         player_only = df[(df["is_ball"] == 0) & (df["team_id"] != 2)].copy()
