@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.pipeline.tracking_csv_builder import TrackingCSVBuilder
-from src.pipeline.pitch_mapper import PitchMapper
+from src.homography.pitch_mapping import PitchMapping
 
 
 def main(args):
@@ -25,7 +25,7 @@ def main(args):
         h = Path(args.homography)
         if h.exists():
             cfg = json.loads(h.read_text())
-            pitch_mapper = PitchMapper(src_points=cfg["src_points"], dst_points=cfg["dst_points"])
+            pitch_mapper = PitchMapping(src_points=cfg["src_points"], dst_points=cfg["dst_points"])
             print(f"[INFO] Loaded homography from {h}")
 
     builder = TrackingCSVBuilder(pitch_mapper=pitch_mapper, fps=args.fps, ema_alpha=args.ema_alpha)

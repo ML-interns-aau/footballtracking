@@ -1,6 +1,8 @@
 # dashboard/pages/results_page.py
 """Results Page — pipeline outputs with aesthetic charts."""
 
+from __future__ import annotations
+
 import os
 import json
 import pandas as pd

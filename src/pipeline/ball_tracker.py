@@ -8,6 +8,8 @@ State vector: [x, y, vx, vy]
 - Trail buffer               : stores last N positions for visualisation
 """
 
+from __future__ import annotations
+
 import cv2
 import numpy as np
 from collections import deque

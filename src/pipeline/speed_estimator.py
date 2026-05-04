@@ -1,6 +1,6 @@
 import numpy as np
 from collections import defaultdict
-from src.pipeline.pitch_mapper import PitchMapper
+from src.homography.pitch_mapping import PitchMapping
 
 
 class SpeedEstimator:
@@ -16,7 +16,7 @@ class SpeedEstimator:
     MAX_STEP_M = 12.0         # Metres — discard steps larger than this (outliers / homography errors)
     MAX_SPEED_KMH = 55.0      # Physical upper bound for any human or ball measurement
 
-    def __init__(self, fps: float, pitch_mapper: PitchMapper, window_size: int = 8):
+    def __init__(self, fps: float, pitch_mapper: PitchMapping, window_size: int = 8):
         self.fps = fps
         self.pitch_mapper = pitch_mapper
         self.window_size = window_size

@@ -19,6 +19,8 @@ class PipelineVisualizer:
         1:          (230, 100, 40),   # BGR blue → Team 1
         -1:         (150, 150, 150),  # unknown / grey
         -2:         (40,  230, 230),  # referee  → yellow
+        -3:         (200, 50, 200),   # GK0      → purple
+        -4:         (50, 200, 50),    # GK1      → green
         "ball":     (255, 255, 255),  # white
     }
 
@@ -27,6 +29,8 @@ class PipelineVisualizer:
         1:  (230, 100, 40),
         -1: (150, 150, 150),
         -2: (40,  230, 230),
+        -3: (200, 50, 200),
+        -4: (50, 200, 50),
     }
 
     def __init__(self):
@@ -135,6 +139,12 @@ class PipelineVisualizer:
             if tid == -2:
                 label = f"REF #{tracker_id}"
                 self._put_text_with_shadow(annotated, label, (x1, y1 - 18), color=(40, 230, 230))
+            elif tid == -3:
+                label = f"GK0 #{tracker_id}"
+                self._put_text_with_shadow(annotated, label, (x1, y1 - 18), color=(200, 50, 200))
+            elif tid == -4:
+                label = f"GK1 #{tracker_id}"
+                self._put_text_with_shadow(annotated, label, (x1, y1 - 18), color=(50, 200, 50))
             else:
                 player_count += 1
                 speed, dist, (x_m, y_m) = speed_estimator.get_stats(tracker_id)

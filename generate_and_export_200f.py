@@ -15,7 +15,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.pipeline.tracking_csv_builder import TrackingCSVBuilder
-from src.pipeline.pitch_mapper import PitchMapper
+from src.homography.pitch_mapping import PitchMapping
 
 # ------------------------------------------------------------------
 # 1. Generate 200-frame synthetic detections
@@ -69,7 +69,7 @@ def main():
 
     # ---- Pitch mapper (standard 1920x1080 homography) ----
     print("[2/3] Setting up pitch mapper ...")
-    pitch_mapper = PitchMapper(
+    pitch_mapper = PitchMapping(
         src_points=[[0, 1080], [1920, 1080], [1440, 324], [480, 324]],
         dst_points=[[0, 68],   [105, 68],    [105, 0],    [0, 0]],
     )

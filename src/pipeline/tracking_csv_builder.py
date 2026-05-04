@@ -268,7 +268,7 @@ class TrackingCSVBuilder:
         df["distance_to_ball"] = dist_sq.pow(0.5).fillna(-1.0)
 
         df["possession"] = -1
-        player_only = df[(df["is_ball"] == 0) & (df["team_id"] != 2)].copy()
+        player_only = df[(df["is_ball"] == 0) & (~df["team_id"].isin([-2, -3, -4]))].copy()
         if not player_only.empty:
             valid = player_only[player_only["distance_to_ball"] >= 0].copy()
             if not valid.empty:
@@ -284,7 +284,16 @@ class TrackingCSVBuilder:
         df["_avg_x"]      = df["track_id"].map(avg_x_map)
         df["is_goalkeeper"] = 0
         df["role"]          = "unknown"
-        df.loc[df["team_id"] == 2, "role"] = "referee"
+        df.loc[df["team_id"] == -2, "role"] = "referee"
+        
+        # Goalkeepers explicitly identified by outlier + spatial split
+        df.loc[df["team_id"] == -3, "role"] = "goalkeeper"
+        df.loc[df["team_id"] == -3, "is_goalkeeper"] = 1
+        df.loc[df["team_id"] == -3, "team_id"] = 0
+        
+        df.loc[df["team_id"] == -4, "role"] = "goalkeeper"
+        df.loc[df["team_id"] == -4, "is_goalkeeper"] = 1
+        df.loc[df["team_id"] == -4, "team_id"] = 1
 
         gk_mask_0 = (df["team_id"] == 0) & (df["_avg_x"] < 15)
         gk_mask_1 = (df["team_id"] == 1) & (df["_avg_x"] > 90)
