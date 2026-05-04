@@ -177,7 +177,7 @@ def render():
 
         col_redo, col_next = st.columns(2)
         with col_redo:
-            if st.button("Re-run Preprocessing", use_container_width=True):
+            if st.button("Re-run Preprocessing", width='stretch'):
                 st.session_state.pop("processed_video", None)
                 st.session_state.pop("_preproc_state", None)
                 st.session_state.pop("_preproc_thread", None)
@@ -255,7 +255,7 @@ def render():
     </div>
     """, unsafe_allow_html=True)
 
-    if st.button("▶  Run Preprocessing", type="primary", use_container_width=True):
+    if st.button("▶  Run Preprocessing", type="primary", width='stretch'):
         vname    = st.session_state.get("uploaded_video_name", os.path.basename(raw))
         stem     = os.path.splitext(vname)[0]
         out_path = os.path.join(PROCESSED_DIR, f"{stem}_preprocessed.mp4")

@@ -259,7 +259,7 @@ def render():
 
         col_rerun, col_results = st.columns(2)
         with col_rerun:
-            if st.button("Re-run Pipeline", use_container_width=True):
+            if st.button("Re-run Pipeline", width='stretch'):
                 for k in ["analysis_done", "analysis_results", "tracked_video",
                           "_pipeline_state", "_pipeline_thread"]:
                     st.session_state.pop(k, None)
@@ -345,7 +345,7 @@ def render():
         help="Set to 0 to process the entire video.",
     )
 
-    if st.button("▶  Run Full Pipeline", type="primary", use_container_width=True):
+    if st.button("▶  Run Full Pipeline", type="primary", width='stretch'):
         max_f = max_frames_to_process  # read directly from the widget return value
 
         state = _PipelineState()

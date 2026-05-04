@@ -115,7 +115,7 @@ def render():
     with left:
         nav_button("← Back to Upload", "Upload", key="pre_back")
     with right:
-        if st.button("Process Video", type="primary", use_container_width=True):
+        if st.button("Process Video", type="primary", width='stretch'):
             output_name = f"{Path(raw).stem}_preprocessed.mp4"
             output_path = Path(PROCESSED_DIR) / output_name
 

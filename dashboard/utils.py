@@ -307,7 +307,7 @@ def render_navbar():
     nav_cols = st.columns(len(NAV_PAGES))
     for col, name in zip(nav_cols, NAV_PAGES):
         with col:
-            if st.button(name, key=f"nav_{name}", use_container_width=True,
+            if st.button(name, key=f"nav_{name}", width='stretch',
                          type="primary" if current == name else "secondary"):
                 st.session_state.page = name
                 st.query_params["page"] = name
@@ -354,7 +354,7 @@ def render_pipeline(active: int = -1, done_up_to: int = -1):
 
 
 def nav_button(label: str, target: str, key: str | None = None):
-    if st.button(label, use_container_width=True, type="primary", key=key):
+    if st.button(label, width='stretch', type="primary", key=key):
         st.session_state.page = target
         st.query_params["page"] = target
         st.rerun()

@@ -92,4 +92,4 @@ def render():
         if st.session_state.get("uploaded_video"):
             nav_button("Next: Preprocess →", "Preprocess")
         else:
-            st.button("Next: Preprocess →", disabled=True, use_container_width=True)
+            st.button("Next: Preprocess →", disabled=True, width='stretch')

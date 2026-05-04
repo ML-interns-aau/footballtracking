@@ -354,7 +354,7 @@ def render():
 
         col_rerun, col_results = st.columns(2)
         with col_rerun:
-            if st.button("Re-run Pipeline", use_container_width=True):
+            if st.button("Re-run Pipeline", width='stretch'):
                 st.session_state.analysis_done = False
                 st.session_state.pop("analysis_results", None)
                 st.session_state.pop("processed_video", None)
@@ -395,7 +395,7 @@ def render():
             )
 
         if st.button("Run Full Pipeline", type="primary",
-                      use_container_width=True):
+                      width='stretch'):
             progress = st.progress(0, text="Starting pipeline...")
             status = st.empty()
 

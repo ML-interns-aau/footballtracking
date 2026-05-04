@@ -96,4 +96,4 @@ def render():
         if video_ready:
             nav_button("Next: Preprocess →", "Preprocess")
         else:
-            st.button("Next: Preprocess →", disabled=True, use_container_width=True)
+            st.button("Next: Preprocess →", disabled=True, width='stretch')

@@ -185,7 +185,7 @@ def render():
                     annotations=[dict(text="Possession", x=0.5, y=0.5,
                                       font=dict(size=12, color=TEXT_MUTED), showarrow=False)],
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
             with data_col:
                 st.markdown("<div style='height:2rem'></div>", unsafe_allow_html=True)
@@ -211,7 +211,7 @@ def render():
                         ))
                     fig2.update_layout(**_layout(height=340, title="Top 10 Players by Possession"),
                                        barmode="stack", xaxis_title="Possession %", yaxis_title="Player ID")
-                    st.plotly_chart(fig2, use_container_width=True)
+                    st.plotly_chart(fig2, width='stretch')
         else:
             st.info("No possession data available.")
 
@@ -253,7 +253,7 @@ def render():
                     st.markdown(metric_card("Avg Visibility", f"{filtered['total_frames'].mean():.0f} frames"), unsafe_allow_html=True)
 
             st.markdown("<div style='height:0.8rem'></div>", unsafe_allow_html=True)
-            st.dataframe(filtered, use_container_width=True, hide_index=True, height=380)
+            st.dataframe(filtered, width='stretch', hide_index=True, height=380)
         else:
             st.info("No player data available.")
 
@@ -278,7 +278,7 @@ def render():
                         hovertemplate="%{y:.1f} km/h<extra></extra>",
                     ))
                 fig3.update_layout(**_layout(height=360, title="Speed Distribution by Team"))
-                st.plotly_chart(fig3, use_container_width=True)
+                st.plotly_chart(fig3, width='stretch')
 
             with col_b:
                 top10 = sdf.nlargest(10, "top_speed_km_h").sort_values("top_speed_km_h")
@@ -298,7 +298,7 @@ def render():
                     ))
                 fig4.update_layout(**_layout(height=360, title="Fastest Players"),
                                    barmode="stack", xaxis_title="Top Speed (km/h)", yaxis_title="Player ID")
-                st.plotly_chart(fig4, use_container_width=True)
+                st.plotly_chart(fig4, width='stretch')
 
             if "avg_speed_km_h" in sdf.columns:
                 fig5 = go.Figure()
@@ -316,7 +316,7 @@ def render():
                     ))
                 fig5.update_layout(**_layout(height=360, title="Speed Profile: Average vs Peak"),
                                    xaxis_title="Average Speed (km/h)", yaxis_title="Top Speed (km/h)")
-                st.plotly_chart(fig5, use_container_width=True)
+                st.plotly_chart(fig5, width='stretch')
         else:
             st.info("No speed data available.")
 
@@ -324,7 +324,7 @@ def render():
     with tab_track:
         if track_df is not None and not track_df.empty:
             st.caption(f"{len(track_df):,} rows — showing first 500")
-            st.dataframe(track_df.head(500), use_container_width=True, hide_index=True, height=360)
+            st.dataframe(track_df.head(500), width='stretch', hide_index=True, height=360)
 
             if "frame_id" in track_df.columns and "object_id" in track_df.columns:
                 per_frame = track_df.groupby("frame_id")["object_id"].nunique().reset_index()
@@ -339,7 +339,7 @@ def render():
                 ))
                 fig6.update_layout(**_layout(height=300, title="Active Tracked Objects Over Time"),
                                    xaxis_title="Frame", yaxis_title="Objects")
-                st.plotly_chart(fig6, use_container_width=True)
+                st.plotly_chart(fig6, width='stretch')
 
             if "cx" in track_df.columns and "cy" in track_df.columns:
                 fig7 = go.Figure(go.Histogram2dContour(
@@ -351,7 +351,7 @@ def render():
                 ))
                 fig7.update_layout(**_layout(height=380, title="Player Position Heatmap"),
                                    xaxis_title="X", yaxis_title="Y", yaxis_autorange="reversed")
-                st.plotly_chart(fig7, use_container_width=True)
+                st.plotly_chart(fig7, width='stretch')
         else:
             st.info("No tracking data available.")
 
@@ -375,28 +375,28 @@ def render():
                 if df is not None:
                     st.download_button(f"Download {fname}", data=df.to_csv(index=False),
                                        file_name=fname, mime="text/csv",
-                                       use_container_width=True, key=f"dl_{fname}")
+                                       width='stretch', key=f"dl_{fname}")
                 else:
-                    st.button("Not available", disabled=True, use_container_width=True, key=f"na_{fname}")
+                    st.button("Not available", disabled=True, width='stretch', key=f"na_{fname}")
 
         st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
         if tracked_video:
             with open(tracked_video, "rb") as vf:
                 st.download_button("⬇  Download Tracked Video (MP4)", data=vf.read(),
                                    file_name=os.path.basename(tracked_video),
-                                   mime="video/mp4", use_container_width=True, type="primary")
+                                   mime="video/mp4", width='stretch', type="primary")
         if summary:
             st.download_button("⬇  Download Pipeline Summary (JSON)",
                                data=json.dumps(summary, indent=2),
                                file_name="pipeline_summary.json",
-                               mime="application/json", use_container_width=True)
+                               mime="application/json", width='stretch')
 
     st.markdown("---")
     left, center, right = st.columns(3)
     with left:
         nav_button("← Back to Analysis", "Analysis", key="res_back")
     with center:
-        if st.button("Start New Analysis", use_container_width=True):
+        if st.button("Start New Analysis", width='stretch'):
             for k in ["uploaded_video", "uploaded_video_name", "processed_video",
                       "analysis_done", "analysis_results", "tracked_video"]:
                 st.session_state.pop(k, None)
