@@ -36,13 +36,14 @@ def _pipeline_command():
     project_root = Path(__file__).resolve().parents[2]
     main_py = project_root / "main.py"
     out_dir = Path(INSIGHTS_DIR)
+    input_video = st.session_state.get("processed_video") or st.session_state.get("uploaded_video", "")
 
     args = [
         sys.executable,
         "-u",
         str(main_py),
         "--input",
-        st.session_state.get("uploaded_video", ""),
+        input_video,
         "--output_dir",
         str(out_dir),
         "--max_frames",
@@ -170,12 +171,20 @@ def render():
     st.markdown("---")
 
     raw_video = st.session_state.get("uploaded_video")
+    processed_video = st.session_state.get("processed_video")
 
     if not raw_video or not os.path.exists(raw_video):
         st.warning("No video uploaded. Go to the Upload page first.")
         _, r = st.columns([3, 1])
         with r:
             nav_button("Go to Upload", "Upload")
+        return
+
+    if not processed_video or not os.path.exists(processed_video):
+        st.warning("Preprocess the video first so Analysis can use the normalized output.")
+        _, r = st.columns([3, 1])
+        with r:
+            nav_button("Go to Preprocess", "Preprocess")
         return
 
     # ── Show what will be processed ──────────────────────────────────────────
@@ -238,28 +247,9 @@ def render():
         )
 
     st.markdown("##### Pipeline Settings")
-    settings_row_1, settings_row_2 = st.columns(2)
+    settings_left, settings_right = st.columns(2)
 
-    with settings_row_1:
-        default_target_fps = int(st.session_state.get("target_fps", DEFAULT_TARGET_FPS))
-        target_fps = st.slider(
-            "Target FPS",
-            min_value=5,
-            max_value=60,
-            value=default_target_fps,
-            step=1,
-            key="analysis_target_fps_ui",
-            help="Lower values sample fewer frames and run faster."
-        )
-        resize_width = st.select_slider(
-            "Resize Width",
-            options=[640, 960, 1280, 1920],
-            value=st.session_state.get("resize_width", DEFAULT_RESIZE_W),
-            key="analysis_resize_width_ui",
-            help="Frames are resized before detection and tracking."
-        )
-
-    with settings_row_2:
+    with settings_left:
         conf = st.slider(
             "Detection Confidence",
             min_value=0.05,
@@ -267,7 +257,7 @@ def render():
             value=float(DEFAULT_CONF),
             step=0.01,
             key="analysis_conf_ui",
-            help="Higher values reduce false positives but may miss players or the ball."
+            help="Higher values reduce false positives but may miss players or the ball.",
         )
         iou = st.slider(
             "NMS IOU Threshold",
@@ -276,39 +266,39 @@ def render():
             value=float(DEFAULT_IOU),
             step=0.01,
             key="analysis_iou_ui",
-            help="Higher values keep more overlapping detections."
+            help="Higher values keep more overlapping detections.",
         )
 
-    imgsz = st.select_slider(
-        "Inference Image Size",
-        options=[640, 960, 1280, 1536],
-        value=DEFAULT_IMGSZ,
-        key="analysis_imgsz_ui",
-        help="Larger sizes can improve small-object detection at the cost of speed."
-    )
+    with settings_right:
+        imgsz = st.select_slider(
+            "Inference Image Size",
+            options=[640, 960, 1280, 1536],
+            value=DEFAULT_IMGSZ,
+            key="analysis_imgsz_ui",
+            help="Larger sizes can improve small-object detection at the cost of speed.",
+        )
 
-    device_options = ["Auto", "CPU"]
-    if has_gpu:
-        device_options.append("GPU (cuda:0)")
-    device_choice = st.radio(
-        "Compute Device",
-        options=device_options,
-        index=0,
-        horizontal=True,
-        key="analysis_device_ui",
-        help="Auto uses GPU when available, otherwise CPU."
-    )
+        device_options = ["Auto", "CPU"]
+        if has_gpu:
+            device_options.append("GPU (cuda:0)")
+        device_choice = st.radio(
+            "Compute Device",
+            options=device_options,
+            index=0,
+            horizontal=True,
+            key="analysis_device_ui",
+            help="Auto uses GPU when available, otherwise CPU.",
+        )
 
-    st.markdown("##### Sample Processing")
-    max_frames_to_process = st.slider(
-        "Process only a sample (0 = full video)",
-        min_value=0,
-        max_value=max(total, 500) if total > 0 else 500,
-        value=st.session_state.get("max_frames_to_process", 50),
-        step=10,
-        key="max_frames_to_process",
-        help="Process a small sample to see results quickly."
-    )
+        max_frames_to_process = st.slider(
+            "Process only a sample (0 = full video)",
+            min_value=0,
+            max_value=max(total, 500) if total > 0 else 500,
+            value=st.session_state.get("max_frames_to_process", 50),
+            step=10,
+            key="max_frames_to_process",
+            help="Process a small sample to see results quickly.",
+        )
 
     device_value = None
     if device_choice == "CPU":
@@ -316,8 +306,9 @@ def render():
     elif device_choice.startswith("GPU"):
         device_value = 0
 
-    st.session_state.analysis_target_fps = target_fps
-    st.session_state.analysis_resize_width = resize_width
+    # Read preprocessing settings (set by Preprocess page)
+    st.session_state.analysis_target_fps = st.session_state.get("target_fps", DEFAULT_TARGET_FPS)
+    st.session_state.analysis_resize_width = st.session_state.get("resize_width", DEFAULT_RESIZE_W)
     st.session_state.analysis_conf = conf
     st.session_state.analysis_iou = iou
     st.session_state.analysis_imgsz = imgsz

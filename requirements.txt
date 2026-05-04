@@ -1,10 +1,19 @@
-opencv-python
-numpy
-tqdm
-supervision
-ultralytics
-scikit-learn
-matplotlib
-requests
-scipy
-pandas
+# Core
+streamlit>=1.35.0
+opencv-python-headless>=4.9.0
+numpy>=1.24.0
+tqdm>=4.66.0
+supervision>=0.21.0
+ultralytics>=8.2.0
+scikit-learn>=1.4.0
+matplotlib>=3.8.0
+requests>=2.31.0
+scipy>=1.12.0
+pandas>=2.1.0
+plotly>=5.20.0
+
+# PyTorch — CPU build (works on all Python versions)
+# For GPU acceleration on Python 3.11 / 3.12 use:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+torch>=2.2.0
+torchvision>=0.17.0

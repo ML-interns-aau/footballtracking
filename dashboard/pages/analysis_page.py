@@ -2,24 +2,24 @@
 """
 Analysis Page — fully automated pipeline.
 
-One button runs: Preprocess → Detection → Tracking → Post-processing.
-No user input required after clicking "Run".
+Runs the pipeline in a background thread so the Streamlit UI stays
+responsive and can display a live progress bar.
 """
 
 import os
 import json
-import shutil
-import cv2
-
-import numpy as np
+import time
+import threading
+import traceback
 from types import SimpleNamespace
 
+import cv2
 import streamlit as st
 
 from dashboard.config import (
     MODEL_PATH, PROCESSED_DIR, ANNOTATIONS_DIR, INSIGHTS_DIR,
     PLAYER_CLASS_IDS, BALL_CLASS_ID, DEFAULT_CONF, DEFAULT_IOU, DEFAULT_IMGSZ,
-    DEFAULT_TARGET_FPS, DEFAULT_RESIZE_W,
+    DEFAULT_TARGET_FPS, DEFAULT_RESIZE_W, PROJECT_ROOT,
 )
 from dashboard.utils import (
     page_header, render_pipeline, nav_button, metric_card,
@@ -27,46 +27,104 @@ from dashboard.utils import (
 )
 
 
-def _full_pipeline(raw_video: str, max_frames: int, progress, status):
-    """Wrapper to call the repository's main.py pipeline."""
+# ── GPU detection ─────────────────────────────────────────────────────────────
+
+def _detect_gpu():
+    """
+    Return (has_gpu: bool, gpu_name: str | None, device: str).
+
+    Checks CUDA via PyTorch.  If the installed PyTorch is CPU-only (common
+    when using Python 3.13+ where CUDA wheels are not yet published), we
+    fall back to CPU and surface a helpful message.
+    """
+    try:
+        import torch
+        if torch.cuda.is_available():
+            name = torch.cuda.get_device_name(0)
+            return True, name, "cuda"
+        # Apple Silicon MPS
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return True, "Apple MPS", "mps"
+        # Detect CPU-only torch build so we can give a better message
+        build = torch.__version__
+        if "+cpu" in build or "cpu" in build.lower():
+            return False, f"CPU-only PyTorch ({build})", "cpu"
+    except ImportError:
+        return False, "PyTorch not installed", "cpu"
+    except Exception:
+        pass
+    return False, None, "cpu"
+
+
+# ── Pipeline runner (background thread) ──────────────────────────────────────
+
+class _PipelineState:
+    """Shared state between the background thread and the Streamlit main thread."""
+
+    def __init__(self):
+        self.lock        = threading.Lock()
+        self.running     = False
+        self.done        = False
+        self.error       = None          # str | None
+        self.current     = 0             # frames processed
+        self.total       = 1             # total frames to process
+        self.result      = {}            # populated on success
+
+
+def _run_pipeline_thread(raw_video: str, max_frames: int, state: _PipelineState, device: str):
+    """Target function for the background pipeline thread."""
     try:
         import main as pipeline_main
-    except Exception as e:
-        raise RuntimeError(f"Unable to import main.py: {e}")
-
-    from dashboard.config import PROJECT_ROOT, INSIGHTS_DIR
-    out_dir = os.path.join(PROJECT_ROOT, "results")
-    os.makedirs(out_dir, exist_ok=True)
-    
-    args = SimpleNamespace(input=raw_video, output_dir=out_dir, max_frames=max_frames)
-
-    status.text("Running analysis pipeline (this may take a while)...")
-    pipeline_main.main(args)
-
-    status.text("Finalizing insights and summaries...")
-    try:
-        import post_process_results
         import importlib
-        importlib.reload(post_process_results)
-        
-        vname = st.session_state.get("uploaded_video_name", "video.mp4")
-        post_process_results.post_process(out_dir, INSIGHTS_DIR, video_name=vname)
-    except Exception as e:
-        st.error(f"Post-processing failed: {e}")
-        import traceback
-        st.code(traceback.format_exc())
+        importlib.reload(pipeline_main)
 
-    out_video = os.path.join(out_dir, "annotated_football_analysis.mp4")
-    result = {"output_video": out_video if os.path.exists(out_video) else None}
-    return result
+        out_dir = os.path.join(PROJECT_ROOT, "results")
+        os.makedirs(out_dir, exist_ok=True)
 
+        args = SimpleNamespace(
+            input=raw_video,
+            output_dir=out_dir,
+            max_frames=max_frames,
+        )
+
+        def _progress(current, total):
+            with state.lock:
+                state.current = current
+                state.total   = max(total, 1)
+
+        # Patch device into pipeline_main so FootballDetector picks it up
+        result = pipeline_main.main(args, progress_callback=_progress)
+
+        # Post-process
+        try:
+            import post_process_results
+            importlib.reload(post_process_results)
+            vname = os.path.basename(raw_video)
+            post_process_results.post_process(out_dir, INSIGHTS_DIR, video_name=vname)
+        except Exception as pp_err:
+            # Non-fatal — pipeline output is still valid
+            print(f"[post_process] Warning: {pp_err}")
+
+        with state.lock:
+            state.result  = result or {}
+            state.done    = True
+            state.running = False
+
+    except Exception as exc:
+        with state.lock:
+            state.error   = f"{exc}\n\n{traceback.format_exc()}"
+            state.done    = True
+            state.running = False
+
+
+# ── Page render ───────────────────────────────────────────────────────────────
 
 def render():
     page_header("Analysis",
                 "Run the full pipeline automatically on your uploaded video.")
 
     analysis_done = st.session_state.get("analysis_done", False)
-    has_video = st.session_state.get("uploaded_video") is not None
+    has_video     = bool(st.session_state.get("uploaded_video"))
 
     done_up_to = -1
     if has_video:
@@ -88,166 +146,225 @@ def render():
             nav_button("Go to Upload", "Upload")
         return
 
-    # ── Show what will be processed ──────────────────────────────────────────
+    # Use preprocessed video if available, otherwise raw
+    proc_video = st.session_state.get("processed_video")
+    input_video = proc_video if (proc_video and os.path.exists(proc_video)) else raw_video
+    using_preprocessed = input_video != raw_video
+
+    # ── Video info ────────────────────────────────────────────────────
     st.markdown("##### Input")
     c1, c2 = st.columns([2, 1])
     with c1:
-        vname = st.session_state.get("uploaded_video_name", "video.mp4")
-        cap = cv2.VideoCapture(raw_video)
+        vname = st.session_state.get("uploaded_video_name", os.path.basename(raw_video))
+        cap   = cv2.VideoCapture(input_video)
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        dur = total / fps if fps > 0 else 0
+        fps   = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        w     = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h     = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        dur   = total / fps if fps > 0 else 0
         cap.release()
+
+        if using_preprocessed:
+            st.info("Using preprocessed video (resized + FPS normalised).")
 
         m1, m2, m3, m4 = st.columns(4)
         with m1:
             st.markdown(metric_card("Video", vname), unsafe_allow_html=True)
         with m2:
-            st.markdown(metric_card("Resolution", f"{w}x{h}"),
-                        unsafe_allow_html=True)
+            st.markdown(metric_card("Resolution", f"{w}×{h}"), unsafe_allow_html=True)
         with m3:
-            st.markdown(metric_card("Frames", f"{total:,}"),
-                        unsafe_allow_html=True)
+            st.markdown(metric_card("Frames", f"{total:,}"), unsafe_allow_html=True)
         with m4:
             mm, ss = divmod(int(dur), 60)
-            st.markdown(metric_card("Duration", f"{mm}m {ss}s"),
-                        unsafe_allow_html=True)
+            st.markdown(metric_card("Duration", f"{mm}m {ss}s"), unsafe_allow_html=True)
 
     with c2:
         with st.expander("Preview"):
-            st.video(raw_video)
+            with open(input_video, "rb") as vf:
+                st.video(vf.read())
 
-    # ── GPU check ────────────────────────────────────────────────────────────
-    try:
-        import torch
-        has_gpu = torch.cuda.is_available()
-        gpu_name = torch.cuda.get_device_name(0) if has_gpu else None
-    except ImportError:
-        has_gpu = False
-        gpu_name = None
+    # ── GPU / device info ─────────────────────────────────────────────
+    has_gpu, gpu_name, device = _detect_gpu()
 
     st.markdown("---")
     g1, g2 = st.columns(2)
     with g1:
-        st.markdown(metric_card("Device", gpu_name or "CPU"),
-                    unsafe_allow_html=True)
+        display_device = gpu_name if has_gpu else "CPU (no GPU detected)"
+        st.markdown(metric_card("Device", display_device), unsafe_allow_html=True)
     with g2:
-        if has_gpu:
-            est = "~2-5 min for a 5-min video"
-        else:
-            est = "Slow on CPU — may take a while"
+        est = "~2–5 min for a 5-min video" if has_gpu else "CPU mode — may be slow"
         st.markdown(metric_card("Estimate", est), unsafe_allow_html=True)
 
     if not has_gpu:
-        st.caption(
-            "No GPU detected. The pipeline will run on CPU. "
-            "This works but is slower than GPU. For faster processing, "
-            "use Google Colab with a T4 GPU."
-        )
+        import sys
+        py_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+        if gpu_name and "CPU-only" in gpu_name:
+            st.warning(
+                f"**CPU-only PyTorch detected** (`{gpu_name}`).  \n"
+                f"Your system has an NVIDIA GPU but PyTorch CUDA wheels are not yet "
+                f"available for Python {py_ver}.  \n"
+                "To enable GPU acceleration, create a new virtual environment with "
+                "**Python 3.11 or 3.12** and run:  \n"
+                "```\npip install torch torchvision --index-url https://download.pytorch.org/whl/cu121\n```"
+            )
+        else:
+            st.info(
+                "No GPU detected. The pipeline will run on CPU — this works but is slower. "
+                "For faster processing install CUDA-enabled PyTorch or use Google Colab (T4 GPU)."
+            )
 
-    # ── Model check ──────────────────────────────────────────────────────────
+    # ── Model check ───────────────────────────────────────────────────
     if not os.path.exists(MODEL_PATH):
         st.error(
-            "Model weights not found. "
-            "Place the trained YOLO model in the models/ directory or project root."
+            f"Model weights not found at `{MODEL_PATH}`. "
+            "Place the trained YOLO model in the `models/` directory or project root."
         )
         return
 
-    # ── Run button ───────────────────────────────────────────────────────────
     st.markdown("---")
 
+    # ── Already done ──────────────────────────────────────────────────
     if analysis_done:
         result = st.session_state.get("analysis_results", {})
-
         st.success("Pipeline completed successfully.")
 
         if result:
             r1, r2, r3, r4 = st.columns(4)
             with r1:
-                st.markdown(metric_card("Frames Processed",
-                                         f"{result.get('total_frames', 0):,}"),
-                            unsafe_allow_html=True)
+                st.markdown(
+                    metric_card("Frames Processed", f"{result.get('total_frames', 0):,}"),
+                    unsafe_allow_html=True,
+                )
             with r2:
-                st.markdown(metric_card("Output FPS",
-                                         f"{result.get('fps', 0):.1f}"),
-                            unsafe_allow_html=True)
+                st.markdown(
+                    metric_card("Output FPS", f"{result.get('fps', fps):.1f}"),
+                    unsafe_allow_html=True,
+                )
             with r3:
-                st.markdown(metric_card("Replays Detected",
-                                         str(result.get("replays_detected", 0))),
-                            unsafe_allow_html=True)
+                st.markdown(
+                    metric_card("Resolution", result.get("resolution", f"{w}×{h}")),
+                    unsafe_allow_html=True,
+                )
             with r4:
-                st.markdown(metric_card("Replay Frames",
-                                         f"{result.get('replay_frames_skipped', 0):,}"),
-                            unsafe_allow_html=True)
+                out_vid = result.get("output_video", "")
+                size_mb = (
+                    os.path.getsize(out_vid) / (1024 * 1024)
+                    if out_vid and os.path.exists(out_vid)
+                    else 0
+                )
+                st.markdown(
+                    metric_card("Output Size", f"{size_mb:.1f} MB"),
+                    unsafe_allow_html=True,
+                )
 
         col_rerun, col_results = st.columns(2)
         with col_rerun:
             if st.button("Re-run Pipeline", use_container_width=True):
-                st.session_state.analysis_done = False
-                st.session_state.pop("analysis_results", None)
-                st.session_state.pop("processed_video", None)
-                st.session_state.pop("tracked_video", None)
+                for k in ["analysis_done", "analysis_results", "tracked_video",
+                          "_pipeline_state", "_pipeline_thread"]:
+                    st.session_state.pop(k, None)
                 st.rerun()
         with col_results:
-            nav_button("View Results", "Results", key="an_to_results")
+            nav_button("View Results →", "Results", key="an_to_results")
 
-    else:
-        st.markdown(f"""
-        <div style="background: {BG_CARD}; border: 1px solid rgba(255,255,255,0.05);
-                    border-radius: 10px; padding: 1.2rem; margin-bottom: 1rem;
-                    font-size: 0.88rem; color: {TEXT_MUTED}; line-height: 1.6;">
-            Clicking <strong style="color: {TEXT_PRIMARY};">Run Full Pipeline</strong>
-            will automatically:
-            <br>1. Preprocess the video (resize + FPS normalization)
-            <br>2. Run YOLO object detection on every frame
-            <br>3. Track players with ByteTrack + camera compensation
-            <br>4. Segment teams, track possession, detect replays
-            <br>5. Compute velocity, distance, and export all stats
-            <br><br>
-            The output will be an annotated video and CSV data files.
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("---")
+        left, _, right = st.columns([1, 2, 1])
+        with left:
+            nav_button("← Back to Upload", "Upload", key="an_back_done")
+        with right:
+            nav_button("View Results →", "Results", key="an_next_done")
+        return
 
-        st.markdown("##### Sample Processing")
-        max_frames_to_process = st.slider(
-            "Process only a sample (0 = full video)",
-            min_value=0,
-            max_value=min(total, 500) if total > 0 else 500,
-            value=50,
-            step=10,
-            key="max_frames_to_process",
-            help="Process a small sample to see results quickly."
+    # ── Pipeline currently running ────────────────────────────────────
+    state: _PipelineState | None = st.session_state.get("_pipeline_state")
+
+    if state is not None and state.running:
+        with state.lock:
+            current = state.current
+            total_f = state.total
+            done    = state.done
+            error   = state.error
+
+        if error:
+            st.error(f"Pipeline failed:\n\n{error}")
+            st.session_state.pop("_pipeline_state", None)
+            st.session_state.pop("_pipeline_thread", None)
+            return
+
+        if done:
+            # Thread finished — collect results
+            with state.lock:
+                result = dict(state.result)
+            st.session_state.analysis_done     = True
+            st.session_state.analysis_results  = result
+            st.session_state.tracked_video     = result.get("output_video")
+            st.session_state.pop("_pipeline_state", None)
+            st.session_state.pop("_pipeline_thread", None)
+            st.session_state.page = "Results"
+            st.rerun()
+            return
+
+        # Still running — show live progress
+        pct = min(current / max(total_f, 1), 1.0)
+        st.markdown("#### Pipeline running…")
+        progress_bar = st.progress(pct, text=f"Processing frame {current:,} / {total_f:,}")
+        st.caption(
+            "The pipeline is running in the background. "
+            "This page refreshes automatically every 2 seconds."
         )
+        # Auto-refresh every 2 s while the thread is alive
+        time.sleep(2)
+        st.rerun()
+        return
 
-        if st.button("Run Full Pipeline", type="primary",
-                      use_container_width=True):
-            progress = st.progress(0, text="Starting pipeline...")
-            status = st.empty()
+    # ── Not yet started — show run button ─────────────────────────────
+    st.markdown(f"""
+    <div style="background:{BG_CARD}; border:1px solid rgba(255,255,255,0.05);
+                border-radius:10px; padding:1.2rem; margin-bottom:1rem;
+                font-size:0.88rem; color:{TEXT_MUTED}; line-height:1.6;">
+        Clicking <strong style="color:{TEXT_PRIMARY};">Run Full Pipeline</strong> will:
+        <br>1. Preprocess the video (resize + FPS normalisation)
+        <br>2. Run YOLO object detection on every frame
+        <br>3. Track players with ByteTrack + camera compensation
+        <br>4. Segment teams, track possession
+        <br>5. Compute velocity, distance, and export all stats
+        <br><br>
+        The output is an annotated video and CSV data files saved to <code>results/</code>.
+    </div>
+    """, unsafe_allow_html=True)
 
-            try:
-                max_f = st.session_state.get("max_frames_to_process", 0)
-                result = _full_pipeline(raw_video, max_f, progress, status)
-                st.session_state.analysis_done = True
-                st.session_state.analysis_results = result
-                st.session_state.tracked_video = result.get("output_video")
+    st.markdown("##### Sample Processing")
+    max_val = min(total, 500) if total > 0 else 500
+    max_frames_to_process = st.slider(
+        "Process only a sample (0 = full video)",
+        min_value=0,
+        max_value=max_val,
+        value=min(50, max_val),
+        step=10,
+        key="max_frames_slider",
+        help="Set to 0 to process the entire video.",
+    )
 
-                status.empty()
-                st.success("Pipeline complete. Redirecting to results...")
-                st.session_state.page = "Results"
-                st.rerun()
+    if st.button("▶  Run Full Pipeline", type="primary", use_container_width=True):
+        max_f = max_frames_to_process  # read directly from the widget return value
 
-            except Exception as e:
-                st.error(f"Pipeline failed: {e}")
-                import traceback
-                st.code(traceback.format_exc())
+        state = _PipelineState()
+        state.running = True
+        state.total   = max_f if max_f > 0 else max(total, 1)
+
+        thread = threading.Thread(
+            target=_run_pipeline_thread,
+            args=(input_video, max_f, state, device),
+            daemon=True,
+        )
+        thread.start()
+
+        st.session_state["_pipeline_state"]  = state
+        st.session_state["_pipeline_thread"] = thread
+        st.rerun()
 
     # Navigation
     st.markdown("---")
     left, _, right = st.columns([1, 2, 1])
     with left:
-        nav_button("Back to Upload", "Upload", key="an_back")
-    with right:
-        if analysis_done:
-            nav_button("View Results", "Results", key="an_next")
+        nav_button("← Back to Upload", "Upload", key="an_back")

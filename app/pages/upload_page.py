@@ -90,6 +90,6 @@ def render():
     _, right_col = st.columns([3, 1])
     with right_col:
         if st.session_state.get("uploaded_video"):
-            nav_button("Next: Run Analysis →", "Analysis")
+            nav_button("Next: Preprocess →", "Preprocess")
         else:
-            st.button("Next: Run Analysis →", disabled=True, use_container_width=True)
+            st.button("Next: Preprocess →", disabled=True, use_container_width=True)
