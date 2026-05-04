@@ -9,10 +9,15 @@ No user input required after clicking "Run".
 import os
 import json
 import shutil
+import subprocess
+import sys
+import re
+import html
 import cv2
 
 import numpy as np
 from types import SimpleNamespace
+from pathlib import Path
 
 import streamlit as st
 
@@ -27,43 +32,123 @@ from app.utils import (
 )
 
 
-def _full_pipeline(raw_video: str, progress, status):
-    """Wrapper to call the repository's main.py pipeline to reuse existing implementation.
+def _pipeline_command():
+    project_root = Path(__file__).resolve().parents[2]
+    main_py = project_root / "main.py"
+    out_dir = Path(INSIGHTS_DIR)
 
-    This function calls main.main(...) with the uploaded video as input and writes
-    outputs to the project `results/` directory. After completion it returns a
-    small summary dict containing the output video path when available.
-    """
-    # Import the project's CLI entrypoint and call it programmatically
-    try:
-        import main as pipeline_main
-    except Exception as e:
-        raise RuntimeError("Unable to import project pipeline (main.py): " + str(e))
+    args = [
+        sys.executable,
+        "-u",
+        str(main_py),
+        "--input",
+        st.session_state.get("uploaded_video", ""),
+        "--output_dir",
+        str(out_dir),
+        "--max_frames",
+        str(st.session_state.get("analysis_max_frames", 0)),
+        "--target_fps",
+        str(st.session_state.get("analysis_target_fps", DEFAULT_TARGET_FPS)),
+        "--resize_width",
+        str(st.session_state.get("analysis_resize_width", DEFAULT_RESIZE_W)),
+        "--conf",
+        str(st.session_state.get("analysis_conf", DEFAULT_CONF)),
+        "--iou",
+        str(st.session_state.get("analysis_iou", DEFAULT_IOU)),
+        "--imgsz",
+        str(st.session_state.get("analysis_imgsz", DEFAULT_IMGSZ)),
+        "--model_path",
+        MODEL_PATH,
+    ]
 
-    # Build args namespace expected by main.main
-    from app.config import INSIGHTS_DIR
-    out_dir = INSIGHTS_DIR  # Pipeline outputs go to data/insights/
-    args = SimpleNamespace(
-        input=raw_video,
-        output_dir=out_dir,
-        max_frames=st.session_state.get("analysis_max_frames", 0),
-        target_fps=st.session_state.get("analysis_target_fps", DEFAULT_TARGET_FPS),
-        resize_width=st.session_state.get("analysis_resize_width", DEFAULT_RESIZE_W),
-        conf=st.session_state.get("analysis_conf", DEFAULT_CONF),
-        iou=st.session_state.get("analysis_iou", DEFAULT_IOU),
-        imgsz=st.session_state.get("analysis_imgsz", DEFAULT_IMGSZ),
-        device=st.session_state.get("analysis_device", None),
-        model_path=MODEL_PATH,
+    device = st.session_state.get("analysis_device", None)
+    if device is not None:
+        args.extend(["--device", str(device)])
+
+    return args, out_dir
+
+
+def _estimate_processed_frames(total_frames: int, source_fps: float) -> int:
+    target_fps = float(st.session_state.get("analysis_target_fps", DEFAULT_TARGET_FPS) or 0)
+    max_frames = int(st.session_state.get("analysis_max_frames", 0) or 0)
+
+    if total_frames <= 0:
+        return max_frames if max_frames > 0 else 0
+
+    frame_step = 1
+    if target_fps > 0 and source_fps > 0:
+        frame_step = max(1, round(source_fps / target_fps))
+
+    estimated = (total_frames + frame_step - 1) // frame_step
+    if max_frames > 0:
+        estimated = min(estimated, max_frames)
+    return max(estimated, 1)
+
+
+def _run_pipeline_with_logs(status, progress, log_placeholder, total_estimated: int):
+    command, out_dir = _pipeline_command()
+    status.info("Starting pipeline...")
+    progress.progress(0, text="Preparing pipeline...")
+
+    log_lines = ["$ " + " ".join(command)]
+
+    def render_logs():
+        safe_text = html.escape("\n".join(log_lines))
+        log_placeholder.markdown(
+            f"""
+            <div style="max-height: 320px; overflow-y: auto; padding: 0.75rem;
+                        border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+                        background: rgba(0,0,0,0.22); font-family: monospace;
+                        font-size: 0.8rem; line-height: 1.45; white-space: pre-wrap;">
+                <pre style="margin: 0; white-space: pre-wrap;">{safe_text}</pre>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    render_logs()
+
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        cwd=str(Path(__file__).resolve().parents[2]),
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},
     )
 
-    status.text("Running external pipeline (this may take a while)...")
-    # main.main runs a CPU/GPU heavy loop; we call it directly. Progress reporting
-    # will come from the invoked script's stdout.
-    pipeline_main.main(args)
+    progress_pattern = re.compile(r"\[PROGRESS\]\s+(\d+)\/(\d+)")
+    total = total_estimated
+    seen_progress = 0
 
-    out_video = os.path.join(out_dir, "annotated_football_analysis.mp4")
-    result = {"output_video": out_video if os.path.exists(out_video) else None}
-    return result
+    assert process.stdout is not None
+    for raw_line in iter(process.stdout.readline, ""):
+        line = raw_line.rstrip("\n")
+        if not line:
+            continue
+
+        match = progress_pattern.search(line)
+        if match:
+            seen_progress = int(match.group(1))
+            if total <= 0:
+                total = int(match.group(2))
+            if total > 0:
+                progress.progress(min(seen_progress / total, 1.0), text=f"Processing frame {seen_progress}/{total}...")
+
+        log_lines.append(line)
+        log_lines = log_lines[-200:]
+        render_logs()
+
+    return_code = process.wait()
+    if return_code != 0:
+        raise RuntimeError(f"Pipeline exited with code {return_code}")
+
+    progress.progress(1.0, text="Pipeline complete.")
+    status.success("Pipeline complete.")
+
+    out_video = out_dir / "annotated_football_analysis.mp4"
+    return {"output_video": str(out_video) if out_video.exists() else None, "return_code": return_code}
 
 
 def render():
@@ -100,10 +185,10 @@ def render():
         vname = st.session_state.get("uploaded_video_name", "video.mp4")
         cap = cv2.VideoCapture(raw_video)
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        source_fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        dur = total / fps if fps > 0 else 0
+        dur = total / source_fps if source_fps > 0 else 0
         cap.release()
 
         m1, m2, m3, m4 = st.columns(4)
@@ -239,6 +324,8 @@ def render():
     st.session_state.analysis_device = device_value
     st.session_state.analysis_max_frames = max_frames_to_process
 
+    estimated_frames = _estimate_processed_frames(total, source_fps)
+
     # ── Model check ──────────────────────────────────────────────────────────
     if not os.path.exists(MODEL_PATH):
         st.error(
@@ -302,19 +389,32 @@ def render():
         </div>
         """, unsafe_allow_html=True)
 
+        with st.expander("Live Logs", expanded=True):
+            log_placeholder = st.empty()
+            log_placeholder.markdown(
+                """
+                <div style="max-height: 320px; overflow-y: auto; padding: 0.75rem;
+                            border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+                            background: rgba(0,0,0,0.22); font-family: monospace;
+                            font-size: 0.8rem; line-height: 1.45;">
+                    Ones you run the pipeline logs will appear here...
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
         if st.button("Run Full Pipeline", type="primary",
                       use_container_width=True):
             progress = st.progress(0, text="Starting pipeline...")
             status = st.empty()
 
             try:
-                result = _full_pipeline(raw_video, progress, status)
+                result = _run_pipeline_with_logs(status, progress, log_placeholder, estimated_frames)
                 st.session_state.analysis_done = True
                 st.session_state.analysis_results = result
                 st.session_state.tracked_video = result.get("output_video")
                 st.session_state.processed_video = raw_video  # Mark preprocessing as done
 
-                status.empty()
                 st.success("Pipeline complete. Redirecting to results...")
                 st.session_state.page = "Results"
                 st.rerun()

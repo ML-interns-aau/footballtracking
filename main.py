@@ -1,6 +1,7 @@
 import cv2
 import argparse
 import numpy as np
+import sys
 from pathlib import Path
 from tqdm import tqdm
 
@@ -74,6 +75,19 @@ def main(args):
         frame_step = max(1, round(fps / target_fps))
         effective_fps = fps / frame_step
 
+    planned_frames = 0
+    if total_frames > 0:
+        planned_frames = (total_frames + frame_step - 1) // frame_step
+    if args.max_frames and args.max_frames > 0:
+        planned_frames = min(planned_frames, args.max_frames) if planned_frames > 0 else args.max_frames
+
+    print(
+        f"[START] input={input_path} output_dir={output_dir} fps={fps:.2f} target_fps={target_fps:.2f} "
+        f"frame_step={frame_step} planned_frames={planned_frames} conf={conf:.2f} iou={iou:.2f} "
+        f"imgsz={imgsz} device={device if device is not None else 'auto'}",
+        flush=True,
+    )
+
     out_video_path = output_dir / "annotated_football_analysis.mp4"
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(str(out_video_path), fourcc, effective_fps, (width, height))
@@ -91,6 +105,7 @@ def main(args):
         imgsz=imgsz,
         device=device,
     )
+    print("[PHASE] detector initialized", flush=True)
     tracker        = FootballTracker(track_thresh=0.20, track_buffer=60, match_thresh=0.80)
     team_classifier = TeamClassifier(n_teams=2, history_len=15, refit_interval=150)
     ball_tracker   = BallTracker(max_trail=25, max_missed=30)
@@ -104,6 +119,7 @@ def main(args):
     pitch_mapper    = PitchMapper(src_points=src_pts, dst_points=dst_pts)
     speed_estimator = SpeedEstimator(fps=effective_fps, pitch_mapper=pitch_mapper, window_size=8)
     csv_builder     = TrackingCSVBuilder(pitch_mapper=pitch_mapper, fps=effective_fps)
+    print("[PHASE] tracking and export components initialized", flush=True)
 
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
@@ -125,6 +141,10 @@ def main(args):
         if source_frame_idx % frame_step != 0:
             source_frame_idx += 1
             continue
+
+        if processed_frame_idx % 25 == 0:
+            total_label = planned_frames if planned_frames > 0 else "unknown"
+            print(f"[PROGRESS] {processed_frame_idx}/{total_label}", flush=True)
 
         frame = _resize_frame(frame, resize_width)
 
@@ -223,6 +243,7 @@ def main(args):
     
     tracking_csv_path = output_dir / "tracking_output.csv"
     csv_builder.finalize_and_write(tracking_csv_path)
+    print(f"[DONE] wrote {out_video_path} and {tracking_csv_path}", flush=True)
 
 
 if __name__ == "__main__":
