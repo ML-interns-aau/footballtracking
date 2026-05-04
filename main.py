@@ -158,14 +158,15 @@ def main(args, progress_callback=None):
             flush=True,
         )
 
-    out_video_path = output_dir / "annotated_football_analysis.mp4"
-    # Use avc1 (H.264) so the output is browser-playable in st.video()
-    # Falls back to mp4v if avc1 is not available on this system
-    fourcc = cv2.VideoWriter_fourcc(*"avc1")
-    out = cv2.VideoWriter(str(out_video_path), fourcc, fps, (width, height))
-    if not out.isOpened():
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        # ── Output video writer ───────────────────────────────────────
+        out_video_path = output_dir / "annotated_football_analysis.mp4"
+        # Use avc1 (H.264) so the output is browser-playable in st.video()
+        # Falls back to mp4v if avc1 is not available on this system
+        fourcc = cv2.VideoWriter_fourcc(*"avc1")
         out = cv2.VideoWriter(str(out_video_path), fourcc, fps, (width, height))
+        if not out.isOpened():
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            out = cv2.VideoWriter(str(out_video_path), fourcc, fps, (width, height))
 
         # ── Read first frame for camera-motion initialisation ─────────
         ret, initial_frame = cap.read()
@@ -173,47 +174,72 @@ def main(args, progress_callback=None):
             from src.observability.errors import VideoCorruptError
             raise VideoCorruptError(str(input_path), frame_idx=0)
 
-    # ── Initialise pipeline components ───────────────────────────────
-    model_path = "yolov8m_fixed.pt"
-    if not Path(model_path).exists():
-        from dashboard.config import MODEL_PATH as DASHBOARD_MODEL_PATH
-        model_path = DASHBOARD_MODEL_PATH
+        # ── Initialise pipeline components ───────────────────────────────
+        job.update(0, phase="init")
+        with metrics.phase("init"):
+            model_path = "yolov8m_fixed.pt"
+            if not Path(model_path).exists():
+                from dashboard.config import MODEL_PATH as DASHBOARD_MODEL_PATH
+                model_path = DASHBOARD_MODEL_PATH
 
-    detector        = FootballDetector(model_path=model_path, conf=0.30, iou=0.40, device=device)
-    tracker         = FootballTracker(track_thresh=0.20, track_buffer=60, match_thresh=0.80)
-    team_classifier = TeamClassifier(n_teams=2, history_len=15, refit_interval=150)
-    ball_tracker    = BallTracker(max_trail=25, max_missed=30)
-    camera_motion   = CameraMotionEstimator(initial_frame)
-    data_exporter   = DataExporter(output_dir=str(output_dir))
-    heatmap_analyzer = HeatmapAnalyzer(pitch_width=105, pitch_height=68)
-    visualizer      = PipelineVisualizer()
+            detector        = FootballDetector(model_path=model_path, conf=0.30, iou=0.40, device=device)
+            tracker         = FootballTracker(track_thresh=0.20, track_buffer=60, match_thresh=0.80)
+            team_classifier = TeamClassifier(n_teams=2, history_len=15, refit_interval=150)
+            ball_tracker    = BallTracker(max_trail=25, max_missed=30)
+            camera_motion   = CameraMotionEstimator(initial_frame)
+            data_exporter   = DataExporter(output_dir=str(output_dir))
+            heatmap_analyzer = HeatmapAnalyzer(pitch_width=105, pitch_height=68)
+            visualizer      = PipelineVisualizer()
 
-    src_pts = [
-        [0,           height],
-        [width,       height],
-        [width * 0.75, height * 0.3],
-        [width * 0.25, height * 0.3],
-    ]
-    dst_pts = [[0, 68], [105, 68], [105, 0], [0, 0]]
-    pitch_mapper    = PitchMapper(src_points=src_pts, dst_points=dst_pts)
-    speed_estimator = SpeedEstimator(fps=effective_fps, pitch_mapper=pitch_mapper, window_size=8)
-    csv_builder     = TrackingCSVBuilder(pitch_mapper=pitch_mapper, fps=effective_fps)
-    print("[PHASE] tracking and export components initialized", flush=True)
+            config_path = "configs/homography.json"
+            if Path(config_path).exists():
+                try:
+                    pitch_mapper = PitchMapping.from_config(config_path)
+                    log.info(f"Loaded homography config from {config_path}")
+                except Exception as e:
+                    log.warning(f"Failed to load homography config, falling back: {e}")
+                    pitch_mapper = None
+            else:
+                pitch_mapper = None
+
+            if pitch_mapper is None:
+                src_pts = [
+                    [0,           height],
+                    [width,       height],
+                    [width * 0.75, height * 0.3],
+                    [width * 0.25, height * 0.3],
+                ]
+                dst_pts = [[0, 68], [105, 68], [105, 0], [0, 0]]
+                pitch_mapper    = PitchMapping(src_points=src_pts, dst_points=dst_pts)
+
+            speed_estimator = SpeedEstimator(fps=effective_fps, pitch_mapper=pitch_mapper, window_size=8)
+            csv_builder     = TrackingCSVBuilder(pitch_mapper=pitch_mapper, fps=effective_fps)
+
+        log.info("Pipeline components initialised")
+        print("[PHASE] tracking and export components initialized", flush=True)
 
         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
-    max_frames = args.max_frames if args.max_frames > 0 else total_frames
-    source_frame_idx = 0
-    processed_frame_idx = 0
-    pbar       = tqdm(total=max_frames, unit="frame")
+        max_frames = args.max_frames if args.max_frames > 0 else total_frames
+        source_frame_idx = 0
+        processed_frame_idx = 0
+        total_detections    = 0
+        run_start_time      = time.perf_counter()
+        pbar       = tqdm(total=max_frames, unit="frame")
 
-    # ── Main processing loop ──────────────────────────────────────────
-    while cap.isOpened():
-        if max_frames > 0 and processed_frame_idx >= max_frames:
-            break
-        ret, frame = cap.read()
-        if not ret:
-            break
+        # ── Main processing loop ──────────────────────────────────────────
+        while cap.isOpened():
+            # Timeout guard
+            if timeout_s > 0:
+                elapsed = time.perf_counter() - run_start_time
+                if elapsed > timeout_s:
+                    raise PipelineTimeoutError(limit_s=timeout_s, elapsed_s=elapsed)
+
+            if max_frames > 0 and processed_frame_idx >= max_frames:
+                break
+            ret, frame = cap.read()
+            if not ret:
+                break
 
             if source_frame_idx % frame_step != 0:
                 source_frame_idx += 1
@@ -314,9 +340,9 @@ def main(args, progress_callback=None):
                                 "speed": round(ball_speed_kmh, 2),
                             })
 
-        data_exporter.log_frame(processed_frame_idx, frame_objs)
-        data_exporter.update_passes(processed_frame_idx, ball_pos_m, player_positions)
-        csv_builder.add_frame(processed_frame_idx, tracked, team_ids)
+                    data_exporter.log_frame(processed_frame_idx, frame_objs)
+                    data_exporter.update_passes(processed_frame_idx, ball_pos_m, player_positions)
+                    csv_builder.add_frame(processed_frame_idx, tracked, team_ids)
 
                 with metrics.phase("visualisation"):
                     annotated = visualizer.annotate_frame(
@@ -352,9 +378,9 @@ def main(args, progress_callback=None):
             source_frame_idx    += 1
             pbar.update(1)
 
-        # Notify caller of progress (used by Streamlit progress bar)
-        if progress_callback is not None:
-            progress_callback(processed_frame_idx, max_frames)
+            # Notify caller of progress (used by Streamlit progress bar)
+            if progress_callback is not None:
+                progress_callback(processed_frame_idx, max_frames)
 
         # ── Empty-detection guard ─────────────────────────────────────
         if processed_frame_idx > 0 and total_detections == 0:
