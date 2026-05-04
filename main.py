@@ -17,7 +17,7 @@ from src.pipeline.detector import FootballDetector
 from src.pipeline.tracker import FootballTracker
 from src.pipeline.team_classifier import TeamClassifier
 from src.pipeline.camera_motion import CameraMotionEstimator
-from src.pipeline.pitch_mapper import PitchMapper
+from src.homography.pitch_mapping import PitchMapping
 from src.pipeline.speed_estimator import SpeedEstimator
 from src.pipeline.ball_tracker import BallTracker
 from src.pipeline.data_exporter import DataExporter
@@ -142,13 +142,18 @@ def main(args, progress_callback=None):
     ]
     dst_pts = [[0, 68], [105, 68], [105, 0], [0, 0]]
     
-    # Use the new dynamic calibration system
-    pitch_mapper    = PitchMapper.from_config(
-        video_path=str(input_path),
-        config_path="data/calibrations.json",
-        default_src=src_pts,
-        default_dst=dst_pts
-    )
+    # Use PitchMapping for coordinate transformations
+    try:
+        # Try to load from config file if it exists
+        config_path = Path("configs/homography.json")
+        if config_path.exists():
+            pitch_mapper = PitchMapping.from_config(str(config_path))
+        else:
+            # Use default calibration points
+            pitch_mapper = PitchMapping(src_pts, dst_pts)
+    except Exception:
+        # Fall back to default points
+        pitch_mapper = PitchMapping(src_pts, dst_pts)
     
     speed_estimator = SpeedEstimator(fps=effective_fps, pitch_mapper=pitch_mapper, window_size=8)
     csv_builder     = TrackingCSVBuilder(pitch_mapper=pitch_mapper, fps=effective_fps)

@@ -48,9 +48,9 @@ class PitchMapping:
         """Recompute homography if the video resolution has been scaled."""
         new_src = self.transform.src_pts * np.array([scale_x, scale_y], dtype=np.float32)
         self.transform = HomographyTransform(new_src, self.transform.dst_pts)
-
+    
     def transform_point(self, point: tuple[float, float]) -> tuple[float, float]:
-        """Wrapper for single point transformation."""
+        """Transform a single point from pixels to pitch coordinates (meters)."""
         return self.transform.transform_point(point)
 
     def transform_points(self, points: np.ndarray) -> np.ndarray:
