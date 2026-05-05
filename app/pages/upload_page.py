@@ -9,7 +9,7 @@ from app.utils import page_header, render_pipeline, nav_button, metric_card
 
 def render():
     page_header("Upload Video", "Provide a match video to start the automated pipeline.")
-    render_pipeline(active=0)
+    # render_pipeline(active=0)
 
     left, right = st.columns([3, 2], gap="large")
 
