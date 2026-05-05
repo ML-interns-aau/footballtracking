@@ -371,16 +371,7 @@ def render():
                                         f"{result.get('replay_frames_skipped', 0):,}"),
                             unsafe_allow_html=True)
 
-        col_rerun, col_results = st.columns(2)
-        with col_rerun:
-            if st.button("Re-run Pipeline", width='stretch'):
-                st.session_state.analysis_done = False
-                st.session_state.pop("analysis_results", None)
-                st.session_state.pop("processed_video", None)
-                st.session_state.pop("tracked_video", None)
-                st.rerun()
-        with col_results:
-            nav_button("View Results", "Results", key="an_to_results")
+        # top duplicate buttons removed (use bottom navigation controls instead)
 
     else:
         st.markdown(f"""
@@ -434,11 +425,33 @@ def render():
                 import traceback
                 st.code(traceback.format_exc())
 
-    # Navigation
+    # Navigation (bottom): Back | Re-run | View Results
     st.markdown("---")
-    left, _, right = st.columns([1, 2, 1])
+    left, center, right = st.columns([1, 1, 1])
     with left:
         nav_button("Back to Upload", "Upload", key="an_back")
+
+    with center:
+        # Re-run is only enabled when an analysis has previously completed
+        if analysis_done:
+            if st.button("Re-run Pipeline", key="an_rerun", width='stretch'):
+                st.session_state.analysis_done = False
+                st.session_state.pop("analysis_results", None)
+                st.session_state.pop("processed_video", None)
+                st.session_state.pop("tracked_video", None)
+                st.rerun()
+        else:
+            st.markdown(
+                "<div style='display:flex;align-items:center;justify-content:center;padding:0.5rem 0.75rem;border-radius:8px;background:rgba(255,255,255,0.02);color:rgba(255,255,255,0.45);border:1px solid rgba(255,255,255,0.02);cursor:not-allowed'>Re-run Pipeline</div>",
+                unsafe_allow_html=True,
+            )
+
     with right:
+        # View Results is only enabled when analysis is complete
         if analysis_done:
             nav_button("View Results", "Results", key="an_next")
+        else:
+            st.markdown(
+                "<div style='display:flex;align-items:center;justify-content:center;padding:0.5rem 0.75rem;border-radius:8px;background:transparent;color:rgba(255,255,255,0.45);border:1px solid rgba(255,255,255,0.02);cursor:not-allowed'>View Results</div>",
+                unsafe_allow_html=True,
+            )
