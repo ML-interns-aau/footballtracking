@@ -1,228 +1,104 @@
-# Copilot Instructions — Team Classifier One-Day Improvement Sprint
+# Copilot Instructions — Football Team Classifier: Full Improvement Pipeline
 
-## Project Context
+## Project Overview
 
-This project is a football (soccer) video analysis system. The `TeamClassifier` class
-(in `team_classifier.py`) assigns detected players to teams using HSV color clustering.
-The goal of this sprint is to significantly improve classification accuracy **without**
-fine-tuning or training any model. All changes are algorithmic and drop-in.
+This project is a football (soccer) video analysis system. The core problem being solved
+is accurate team classification — assigning each detected player to their team, and
+distinguishing goalkeepers and referees from outfield players.
 
-The detector lives in `detector.py`. The classifier is called per-frame with person
-bounding boxes and optional tracker IDs.
+The current implementation (`TeamClassifier` in `team_classifier.py`) uses raw HSV
+color + KMeans clustering. It works but is brittle to lighting changes, similar kit
+colors, and green kits.
 
----
-
-## Sprint Goal (One Day)
-
-Improve team classification accuracy by fixing the root causes of error:
-
-1. Lighting/white-balance drift → **gray-world color normalization**
-2. Hardcoded grass exclusion failing on different turf colors → **dynamic grass mask**
-3. HSV being perceptually non-uniform → **switch dominant color extraction to Lab color space**
-4. Poor jersey crops on distant/small players → **tighten the bbox crop**
-
-No model training. No new dependencies beyond what numpy/sklearn/opencv already provide.
+The goal of this multi-phase pipeline is:
+1. Improve the existing color-based classifier immediately (no training required)
+2. Download and parse the SoccerNet-GSR dataset properly
+3. Convert the dataset annotations to YOLO format
+4. Fine-tune a YOLO model on those annotations to predict 5 classes natively:
+   `player_left`, `player_right`, `goalkeeper_left`, `goalkeeper_right`, `referee`
 
 ---
 
-## File-by-File Instructions
+## Instruction Files in This Folder
 
-### `team_classifier.py` — Primary Target
+Each file covers one phase. They are designed to be used sequentially but are
+self-contained so Copilot can be focused on one phase at a time.
 
-#### 1. Add a `normalize_frame()` utility (gray-world assumption)
+| File | Phase | When to Use |
+|---|---|---|
+| `01-color-classifier-improvements.md` | Immediate color pipeline fixes | Start here — no data needed |
+| `02-dataset-download-and-structure.md` | SoccerNet-GSR acquisition | After phase 1 is working |
+| `03-annotation-conversion.md` | JSON → YOLO label conversion | After dataset is downloaded |
+| `04-yolo-finetune.md` | Fine-tuning YOLO on the converted data | After conversion is complete |
+| `05-integration.md` | Wiring the fine-tuned model back into the pipeline | After training converges |
 
-Add this as a **module-level function** (not a method), called once per frame before
-any crop is extracted:
+---
+
+## Class Map (Used Throughout All Files)
+
+This is the canonical class mapping for the YOLO fine-tune target. Use it consistently
+across all conversion, training, and integration code.
 
 ```python
-def normalize_frame(frame: np.ndarray) -> np.ndarray:
-    """
-    Gray-world color constancy normalization.
-    Scales each BGR channel so the per-channel mean equals the global mean.
-    Reduces white-balance and lighting drift across frames.
-    """
-    frame = frame.astype(np.float32)
-    mean_per_channel = frame.mean(axis=(0, 1))   # shape (3,)
-    global_mean = mean_per_channel.mean()
-    scale = global_mean / (mean_per_channel + 1e-6)
-    normalized = np.clip(frame * scale, 0, 255)
-    return normalized.astype(np.uint8)
+CLASS_MAP = {
+    "player_left":       0,   # outfield player, team on the left side of pitch
+    "player_right":      1,   # outfield player, team on the right side of pitch
+    "goalkeeper_left":   2,   # goalkeeper, left team
+    "goalkeeper_right":  3,   # goalkeeper, right team
+    "referee":           4,   # any referee role (main, assistant)
+}
 ```
 
-Call it at the top of `classify_players()` (or whatever the per-frame entry point is)
-**before** any crop is taken:
+The SoccerNet-GSR annotation uses `role` ∈ {`player`, `goalkeeper`, `referee`, `other`}
+and `team` ∈ {`left`, `right`}. The mapping from those to CLASS_MAP is:
 
-```python
-frame = normalize_frame(frame)
+```
+role=player,     team=left    → 0  (player_left)
+role=player,     team=right   → 1  (player_right)
+role=goalkeeper, team=left    → 2  (goalkeeper_left)
+role=goalkeeper, team=right   → 3  (goalkeeper_right)
+role=referee,    team=any     → 4  (referee)
+role=other,      team=any     → SKIP (do not include in YOLO labels)
 ```
 
-Do not apply it inside `_get_jersey_crop()` — normalize once at the frame level, not
-per crop.
-
 ---
 
-#### 2. Replace the fixed green mask with a dynamic one
+## Key Paths and Conventions
 
-Delete `_GREEN_LOWER` and `_GREEN_UPPER` class constants.
-
-Add a method `_compute_grass_mask()` that samples the field color from the current
-frame each time it is called. The field is the dominant green-ish region. Strategy:
-
-- Convert frame to HSV.
-- Keep pixels where `H` is in `[35, 85]` (broad green hue range in OpenCV 0–179 scale)
-  and `S > 40` and `V > 40`.
-- Compute the **median HSV** of those pixels as the "current grass color".
-- Build the exclusion mask as pixels within ±15 H, ±40 S, ±40 V of that median.
-
-```python
-def _compute_grass_mask(self, hsv_pixels: np.ndarray) -> np.ndarray:
-    """
-    Returns a boolean mask of pixels that look like the current field grass.
-    hsv_pixels: shape (N, 3) in OpenCV HSV scale (H: 0-179, S: 0-255, V: 0-255).
-    """
-    h, s, v = hsv_pixels[:, 0], hsv_pixels[:, 1], hsv_pixels[:, 2]
-    candidate_grass = (h >= 35) & (h <= 85) & (s > 40) & (v > 40)
-    if candidate_grass.sum() < 10:
-        # Fallback: very wide green range if no grass found
-        return (h >= 30) & (h <= 90)
-    grass_median = np.median(hsv_pixels[candidate_grass], axis=0)
-    gh, gs, gv = grass_median
-    mask = (
-        (np.abs(h.astype(int) - int(gh)) < 15) &
-        (np.abs(s.astype(int) - int(gs)) < 40) &
-        (np.abs(v.astype(int) - int(gv)) < 40)
-    )
-    return mask
+```
+project_root/
+├── team_classifier.py          ← phase 1 target
+├── detector.py                 ← YOLO inference wrapper (phase 5 target)
+├── data/
+│   └── SoccerNetGS/
+│       ├── train/              ← downloaded dataset splits
+│       ├── valid/
+│       └── test/
+├── datasets/
+│   └── soccernet_yolo/         ← converted YOLO dataset (phase 3 output)
+│       ├── images/
+│       │   ├── train/
+│       │   └── val/
+│       ├── labels/
+│       │   ├── train/
+│       │   └── val/
+│       └── dataset.yaml        ← YOLO training config
+├── runs/
+│   └── finetune/               ← YOLO training output (phase 4)
+└── scripts/
+    ├── download_dataset.py     ← phase 2
+    ├── convert_annotations.py  ← phase 3
+    └── train_yolo.py           ← phase 4
 ```
 
-Replace every use of the old `_GREEN_LOWER`/`_GREEN_UPPER` mask with a call to
-`_compute_grass_mask()` on the flattened HSV pixels of each crop.
-
 ---
 
-#### 3. Switch dominant-color extraction to Lab color space
+## Hard Rules (Apply to All Phases)
 
-This is the highest-impact single change. Lab is perceptually uniform — similar
-jersey colors are numerically close, and the hue instability of HSV near low
-saturation is eliminated.
-
-Replace the dominant color extraction logic in `_get_dominant_color()` (or equivalent)
-as follows:
-
-- Convert the crop from BGR to **Lab** using `cv2.cvtColor(crop, cv2.COLOR_BGR2Lab)`.
-- Flatten to `(N, 3)`.
-- Apply the dynamic grass mask (convert the same crop to HSV first, compute mask,
-  then apply it to the Lab pixels — use the same pixel indices).
-- Exclude very dark pixels: drop rows where `L < 20` (Lab L channel, OpenCV scale 0–255,
-  so threshold is `~20`).
-- Run `KMeans(n_clusters=1)` on the remaining Lab pixels to get the dominant Lab vector.
-- Return this Lab vector as the player's color feature.
-
-Update `fit_teams()` to cluster in Lab space instead of HSV. The cluster centers and
-distance calculations all remain the same — just the feature space changes.
-
-**Do not** mix HSV and Lab vectors. Pick one (Lab) and use it end-to-end for both
-fitting and inference.
-
----
-
-#### 4. Tighten the jersey crop
-
-In `_get_jersey_crop()`, the current crop takes the top 50% of the bounding box.
-This is too generous on small/distant players and includes too much face, hair,
-and background.
-
-Change it to:
-
-```python
-def _get_jersey_crop(self, frame: np.ndarray, bbox: tuple) -> np.ndarray:
-    """
-    Returns a tight torso crop: vertically from 15% to 55% of the bbox height,
-    horizontally inset by 10% on each side.
-    This targets the jersey chest area and reduces face/hair/background contamination.
-    """
-    x1, y1, x2, y2 = map(int, bbox)
-    h = y2 - y1
-    w = x2 - x1
-
-    top    = y1 + int(0.15 * h)
-    bottom = y1 + int(0.55 * h)
-    left   = x1 + int(0.10 * w)
-    right  = x2 - int(0.10 * w)
-
-    # Guard against degenerate boxes (very small detections)
-    if bottom <= top or right <= left:
-        return None
-
-    return frame[top:bottom, left:right]
-```
-
-Return `None` for degenerate crops and skip them in the caller — do not pass empty
-arrays to KMeans.
-
----
-
-#### 5. Guard against KMeans receiving too-few pixels
-
-After applying the grass mask and dark-pixel exclusion, the remaining pixel count can
-drop to near zero for small crops. Add a guard:
-
-```python
-MIN_PIXELS_FOR_KMEANS = 30
-
-if len(valid_pixels) < MIN_PIXELS_FOR_KMEANS:
-    return None  # skip this player for this frame
-```
-
-Handle `None` returns in `fit_teams()` by filtering them out before clustering.
-
----
-
-### `detector.py` — Minor Touch
-
-No structural changes needed. Just make sure the bounding boxes returned are in
-`(x1, y1, x2, y2)` absolute pixel format before passing to `TeamClassifier`. If they
-are normalized `[0, 1]`, denormalize with frame width/height before the crop step.
-
----
-
-## What NOT to Do Today
-
-- Do **not** add any new deep learning model or pretrained CNN (that is the next sprint).
-- Do **not** change the voting/locking logic — it is working well and will benefit
-  automatically from the cleaner upstream signal.
-- Do **not** change `refit_interval` or cluster count — keep those stable while
-  testing the color pipeline changes.
-- Do **not** add new pip dependencies. Everything here uses `numpy`, `opencv-python`,
-  and `scikit-learn`, which are already present.
-
----
-
-## Testing Checklist
-
-After each change, verify on a short video clip (30–60 seconds is enough):
-
-- [ ] Frame normalization: jersey colors look consistent across shadowed/lit regions
-- [ ] Dynamic grass mask: players near the sideline are not partially masked out
-- [ ] Lab clustering: `fit_teams()` produces stable cluster centers across frames
-      (print them — they should not jump around)
-- [ ] Tighter crop: visually inspect a few crops to confirm they hit chest/jersey
-      and not face/background
-- [ ] No crashes on small detections (degenerate bbox guard works)
-- [ ] Overall: per-tracker team assignment flips less often than before
-
-Run your existing evaluation script (if any) before and after and compare flip-rate
-and per-frame accuracy.
-
----
-
-## Suggested Implementation Order
-
-1. `normalize_frame()` — 20 min, isolated, easy to test
-2. Tighter `_get_jersey_crop()` — 15 min, visual sanity check with `cv2.imshow`
-3. Dynamic `_compute_grass_mask()` — 30 min, replace old constants
-4. Lab color space swap in `_get_dominant_color()` + `fit_teams()` — 45 min, most impactful
-5. Degenerate crop guard — 10 min, defensive coding
-6. End-to-end test on a full clip — remaining time
-
-Total estimated time: ~2–3 hours of focused coding + testing time.
+- Never hardcode absolute paths. Use `pathlib.Path` everywhere.
+- All scripts must be runnable from the project root: `python scripts/script_name.py`
+- All scripts must have a `--help` flag via `argparse`.
+- Log progress with `tqdm` for any loop over files or frames.
+- Do not silently skip errors. Use `try/except` with logging, not bare `pass`.
+- Python 3.9+ syntax only (match statements, `|` union types are fine).
+- GPU is optional everywhere — all code must fall back to CPU gracefully.
