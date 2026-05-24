@@ -96,14 +96,14 @@ def extract_bbox(annotation: dict) -> list[float] | None:
     SoccerNet exports can vary slightly, so we try multiple field names instead
     of assuming only `bbox` exists.
     """
-        for key in ("bbox_image", "bbox", "box", "position"):
+    for key in ("bbox_image", "bbox", "box", "position"):
         if key in annotation:
             bbox = _coerce_bbox(annotation.get(key))
             if bbox is not None:
                 return bbox
 
     attrs = annotation.get("attributes", {})
-        for key in ("bbox_image", "bbox", "box", "position"):
+    for key in ("bbox_image", "bbox", "box", "position"):
         if key in attrs:
             bbox = _coerce_bbox(attrs.get(key))
             if bbox is not None:
