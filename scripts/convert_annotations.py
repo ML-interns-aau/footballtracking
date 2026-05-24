@@ -190,19 +190,19 @@ def convert_clip(
     if str(version) < "1.3":
         log.warning("%s: version %s < 1.3 - annotations may be inaccurate", clip_dir.name, version)
 
-        images_by_id: dict[str, dict] = {}
-        for img in data.get("images", []):
-            image_id = img.get("image_id") or img.get("id")
-            if image_id is None:
-                continue
-            images_by_id[str(image_id)] = img
-
-    annots_by_image: dict[int, list] = defaultdict(list)
-    for ann in data.get("annotations", []):
-            image_id = ann.get("image_id")
+    images_by_id: dict[str, dict] = {}
+    for img in data.get("images", []):
+        image_id = img.get("image_id") or img.get("id")
         if image_id is None:
             continue
-            annots_by_image[str(image_id)].append(ann)
+        images_by_id[str(image_id)] = img
+
+    annots_by_image: dict[str, list] = defaultdict(list)
+    for ann in data.get("annotations", []):
+        image_id = ann.get("image_id")
+        if image_id is None:
+            continue
+        annots_by_image[str(image_id)].append(ann)
 
     stats = {
         "total_frames": 0,
