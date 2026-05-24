@@ -120,12 +120,13 @@ def main(args, progress_callback=None):
     )
 
     out_video_path = resolver.annotated_video()
+    output_fps = effective_fps if effective_fps > 0 else fps
     # Use avc1 (H.264) so the output is browser-playable in st.video()
     fourcc = cv2.VideoWriter_fourcc(*"avc1")
-    out = cv2.VideoWriter(str(out_video_path), fourcc, fps, (width, height))
+    out = cv2.VideoWriter(str(out_video_path), fourcc, output_fps, (width, height))
     if not out.isOpened():
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        out = cv2.VideoWriter(str(out_video_path), fourcc, fps, (width, height))
+        out = cv2.VideoWriter(str(out_video_path), fourcc, output_fps, (width, height))
 
     ret, initial_frame = cap.read()
     if not ret:
@@ -374,7 +375,7 @@ def main(args, progress_callback=None):
 
     return {
         "total_frames": processed_frame_idx,
-        "fps": fps,
+        "fps": output_fps,
         "resolution": f"{width}x{height}",
         "output_video": str(out_video_path),
         "game_id": game_id,
