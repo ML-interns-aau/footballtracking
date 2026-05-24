@@ -45,6 +45,9 @@ def _pipeline_command():
     # Store game_id in session state for results page
     st.session_state["current_game_id"] = game_id
 
+    source_fps = st.session_state.get("source_video_fps", DEFAULT_TARGET_FPS)
+    default_target_fps = st.session_state.get("target_fps", source_fps)
+
     args = [
         sys.executable,
         "-u",
@@ -56,7 +59,7 @@ def _pipeline_command():
         "--max_frames",
         str(st.session_state.get("analysis_max_frames", 0)),
         "--target_fps",
-        str(st.session_state.get("analysis_target_fps", DEFAULT_TARGET_FPS)),
+        str(default_target_fps),
         "--resize_width",
         str(st.session_state.get("analysis_resize_width", DEFAULT_RESIZE_W)),
         "--conf",
@@ -79,7 +82,7 @@ def _pipeline_command():
 
 
 def _estimate_processed_frames(total_frames: int, source_fps: float) -> int:
-    target_fps = float(st.session_state.get("analysis_target_fps", DEFAULT_TARGET_FPS) or 0)
+    target_fps = float(st.session_state.get("analysis_target_fps", st.session_state.get("target_fps", source_fps)) or 0)
     max_frames = int(st.session_state.get("analysis_max_frames", 0) or 0)
 
     if total_frames <= 0:
@@ -326,7 +329,8 @@ def render():
         device_value = 0
 
     # Read preprocessing settings (set by Preprocess page)
-    st.session_state.analysis_target_fps = st.session_state.get("target_fps", DEFAULT_TARGET_FPS)
+    st.session_state.source_video_fps = source_fps
+    st.session_state.analysis_target_fps = st.session_state.get("target_fps", source_fps)
     st.session_state.analysis_resize_width = st.session_state.get("resize_width", DEFAULT_RESIZE_W)
     st.session_state.analysis_conf = conf
     st.session_state.analysis_iou = iou

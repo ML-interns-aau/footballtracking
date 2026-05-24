@@ -60,14 +60,15 @@ def render():
 
     s1, s2 = st.columns(2)
     with s1:
+        default_fps = int(round(info["fps"])) if info["fps"] > 0 else int(DEFAULT_TARGET_FPS)
         fps = st.slider(
             "Target FPS",
             min_value=5,
             max_value=60,
-            value=int(st.session_state.get("target_fps", DEFAULT_TARGET_FPS)),
+            value=int(st.session_state.get("target_fps", default_fps)),
             step=1,
             key="preprocess_fps",
-            help="Lower FPS reduces the number of frames sent to analysis.",
+            help="Defaults to the source video FPS; lower values reduce the number of frames sent to analysis.",
         )
     with s2:
         width = st.select_slider(
