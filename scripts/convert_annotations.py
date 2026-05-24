@@ -143,6 +143,33 @@ def _safe_symlink_or_copy(src: Path, dst: Path) -> None:
         shutil.copy2(src, dst)
 
 
+def _resolve_clip_assets(clip_dir: Path) -> tuple[Path | None, Path | None, Path | None]:
+    """
+    Resolve the actual clip root even if the dataset layout has an extra nesting layer.
+
+    Returns (clip_root, label_file, img_dir) or (None, None, None) if not found.
+    """
+    direct_label = clip_dir / "Labels-GameState.json"
+    direct_img_dir = clip_dir / "img1"
+    if direct_label.exists() and direct_img_dir.exists():
+        return clip_dir, direct_label, direct_img_dir
+
+    for label_file in clip_dir.rglob("Labels-GameState.json"):
+        if not label_file.is_file():
+            continue
+        clip_root = label_file.parent
+        img_dir = clip_root / "img1"
+        if img_dir.exists():
+            return clip_root, label_file, img_dir
+
+        # Some exports keep frames in a sibling/child folder under the clip root.
+        for candidate in clip_root.rglob("img1"):
+            if candidate.is_dir():
+                return clip_root, label_file, candidate
+
+    return None, None, None
+
+
 def convert_clip(
     clip_dir: Path,
     out_images_dir: Path,
@@ -150,14 +177,10 @@ def convert_clip(
     sample_rate: int = 1,
 ) -> dict:
     """Converts one SNGS-XXX clip and returns stats."""
-    label_file = clip_dir / "Labels-GameState.json"
-    img_dir = clip_dir / "img1"
+    clip_root, label_file, img_dir = _resolve_clip_assets(clip_dir)
 
-    if not label_file.exists():
-        log.warning("No Labels-GameState.json in %s - skipping clip", clip_dir.name)
-        return {}
-    if not img_dir.exists():
-        log.warning("No img1/ directory in %s - skipping clip", clip_dir.name)
+    if label_file is None or img_dir is None or clip_root is None:
+        log.warning("No clip assets found in %s - skipping clip", clip_dir.name)
         return {}
 
     with label_file.open() as handle:
@@ -197,11 +220,11 @@ def convert_clip(
         if not img_filename:
             continue
 
-        src_img_path = clip_dir / img_filename
+        src_img_path = clip_root / img_filename
         if not src_img_path.exists():
             continue
 
-        frame_stem = f"{clip_dir.name}_{Path(img_filename).stem}"
+        frame_stem = f"{clip_root.name}_{Path(img_filename).stem}"
         dst_img_path = out_images_dir / f"{frame_stem}.jpg"
         dst_label_path = out_labels_dir / f"{frame_stem}.txt"
 
