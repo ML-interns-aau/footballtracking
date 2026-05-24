@@ -225,9 +225,13 @@ def convert_clip(
         if not img_filename:
             continue
 
-        src_img_path = clip_root / img_filename
+        src_img_path = img_dir / img_filename
         if not src_img_path.exists():
-            continue
+            alt_img_path = clip_root / img_filename
+            if alt_img_path.exists():
+                src_img_path = alt_img_path
+            else:
+                continue
 
         frame_stem = f"{clip_root.name}_{Path(img_filename).stem}"
         dst_img_path = out_images_dir / f"{frame_stem}.jpg"
