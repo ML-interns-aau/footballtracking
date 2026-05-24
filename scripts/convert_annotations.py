@@ -96,14 +96,14 @@ def extract_bbox(annotation: dict) -> list[float] | None:
     SoccerNet exports can vary slightly, so we try multiple field names instead
     of assuming only `bbox` exists.
     """
-    for key in ("bbox", "box", "position"):
+        for key in ("bbox_image", "bbox", "box", "position"):
         if key in annotation:
             bbox = _coerce_bbox(annotation.get(key))
             if bbox is not None:
                 return bbox
 
     attrs = annotation.get("attributes", {})
-    for key in ("bbox", "box", "position"):
+        for key in ("bbox_image", "bbox", "box", "position"):
         if key in attrs:
             bbox = _coerce_bbox(attrs.get(key))
             if bbox is not None:
@@ -190,14 +190,19 @@ def convert_clip(
     if str(version) < "1.3":
         log.warning("%s: version %s < 1.3 - annotations may be inaccurate", clip_dir.name, version)
 
-    images_by_id: dict[int, dict] = {int(img["id"]): img for img in data.get("images", []) if "id" in img}
+        images_by_id: dict[str, dict] = {}
+        for img in data.get("images", []):
+            image_id = img.get("image_id") or img.get("id")
+            if image_id is None:
+                continue
+            images_by_id[str(image_id)] = img
 
     annots_by_image: dict[int, list] = defaultdict(list)
     for ann in data.get("annotations", []):
-        image_id = ann.get("image_id")
+            image_id = ann.get("image_id")
         if image_id is None:
             continue
-        annots_by_image[int(image_id)].append(ann)
+            annots_by_image[str(image_id)].append(ann)
 
     stats = {
         "total_frames": 0,
