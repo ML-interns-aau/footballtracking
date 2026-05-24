@@ -6,6 +6,9 @@ from collections import defaultdict, deque
 from math import ceil
 
 
+MIN_PIXELS_FOR_KMEANS = 30
+
+
 def normalize_frame(frame: np.ndarray) -> np.ndarray:
     """
     Gray-world color constancy normalization.
@@ -32,8 +35,6 @@ class TeamClassifier:
 
     REFEREE_ID = -2   # sentinel team id for referees
     UNKNOWN_ID = -1   # team not yet assigned
-
-    MIN_PIXELS_FOR_KMEANS = 30
 
     def __init__(self, n_teams: int = 2, history_len: int = 15, refit_interval: int = 150):
         self.n_teams = n_teams
@@ -80,8 +81,6 @@ class TeamClassifier:
             return None
 
         return frame[top:bottom, left:right]
-
-    # (Old upper-half crop removed; using tighter torso crop above.)
 
     def _compute_grass_mask(self, hsv_pixels: np.ndarray) -> np.ndarray:
         """
@@ -141,7 +140,7 @@ class TeamClassifier:
         if bright.size == 0:
             return None
 
-        if len(bright) < self.MIN_PIXELS_FOR_KMEANS:
+        if len(bright) < MIN_PIXELS_FOR_KMEANS:
             return None
 
         km = KMeans(n_clusters=1, n_init=3, random_state=42)
@@ -149,9 +148,6 @@ class TeamClassifier:
         return km.cluster_centers_[0]
 
     def fit_teams(self, frame: np.ndarray, detections: sv.Detections):
-        # Normalize frame once per-frame
-        frame = normalize_frame(frame)
-
         player_mask = detections.class_id == 0
         player_detections = detections[player_mask]
         if len(player_detections) < 6:
