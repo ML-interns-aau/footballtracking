@@ -190,6 +190,11 @@ def main(args, progress_callback=None):
         pitch_mapper=pitch_mapper,
         window_size=CONFIG.get('speed.window_size', 8)
     )
+    # Inform exporter of processed FPS so it can compute timestamps/acceleration
+    try:
+        data_exporter.set_fps(effective_fps)
+    except Exception:
+        pass
     csv_builder     = TrackingCSVBuilder(pitch_mapper=pitch_mapper, fps=effective_fps)
     player_builder  = PlayerSummaryCSVBuilder()
     possession_builder = PossessionSummaryCSVBuilder()

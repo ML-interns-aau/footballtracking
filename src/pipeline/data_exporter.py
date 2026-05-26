@@ -12,7 +12,13 @@ class DataExporter:
         self.json_path = self.output_dir / OutputFiles.ANALYTICS_JSON
         
         self.frame_data = []
-        
+
+        # storage for enriched output
+        self.match_info = {}
+        self.events = []
+        self._last_speeds = {}  # tracker_id -> last speed in m/s
+        self.fps = 25.0
+
         with open(self.csv_path, mode='w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(AnalyticsCSVColumns.all_columns())
@@ -48,6 +54,54 @@ class DataExporter:
                     round(obj.get("speed", 0.0), 2) if "speed" in obj else "",
                     round(obj.get("distance", 0.0), 2) if "distance" in obj else ""
                 ])
+
+        # Update last speed tracking for acceleration computation later
+        for obj in frame_objects:
+            tracker_id = obj.get("id")
+            if tracker_id is None:
+                continue
+
+            # Prefer explicit km/h fields if present
+            speed_kmh = None
+            if "speed_kmh" in obj:
+                speed_kmh = obj.get("speed_kmh")
+            elif "speed_km_h" in obj:
+                speed_kmh = obj.get("speed_km_h")
+            elif "speed" in obj:
+                speed_kmh = obj.get("speed")
+
+            if speed_kmh is None:
+                continue
+
+            try:
+                speed_kmh = float(speed_kmh)
+            except Exception:
+                continue
+
+            speed_ms = speed_kmh / 3.6
+
+            # compute acceleration using previous speed if present
+            try:
+                tid = int(tracker_id)
+            except Exception:
+                tid = None
+
+            if tid is not None and tid in self._last_speeds:
+                prev_v = self._last_speeds.get(tid, 0.0)
+                # dt in seconds
+                dt = 1.0 / float(self.fps) if self.fps > 0 else 1.0
+                acceleration = (speed_ms - prev_v) / dt
+                # Attach acceleration to the object for later serialization
+                try:
+                    obj["acceleration"] = round(acceleration, 2)
+                except Exception:
+                    pass
+
+            try:
+                self._last_speeds[tid] = speed_ms
+            except Exception:
+                # ignore non-int ids
+                pass
 
     def update_passes(self, frame_idx: int, ball_pos: tuple[float, float], player_positions: dict[int, tuple[float, float]], ball_speed_kmh: float = 0.0):
         if ball_pos == (0.0, 0.0):
@@ -103,6 +157,30 @@ class DataExporter:
                     self.current_possessor_id = None
                     self.loose_ball_frames = 0
 
+    def set_match_info(self, match_info: dict):
+        """Store match-level metadata used in the final JSON output.
+
+        Example: {"match_id":"...","home_team":"...","away_team":"...","period": "1"}
+        """
+        self.match_info = dict(match_info) if match_info is not None else {}
+
+    def add_event(self, event: dict):
+        """Append a single event record produced by EventsDetector.
+
+        Event must be a dict following agreed schema. Exporter will include events
+        in the final `events` array. If no events are added, existing `passes` are used.
+        """
+        if event is None:
+            return
+        self.events.append(event)
+
+    def set_fps(self, fps: float):
+        """Set the processed frames-per-second used to compute timestamps and acceleration."""
+        try:
+            self.fps = float(fps)
+        except Exception:
+            pass
+
     def finalize(self):
         def convert_numpy(obj):
             import numpy as np
@@ -118,15 +196,132 @@ class DataExporter:
                 return [convert_numpy(i) for i in obj]
             return obj
 
-        final_data = {
-            "metadata": {"total_passes": len(self.passes)},
-            "passes": self.passes,
-            "frames": self.frame_data
-        }
-        
-        final_data = convert_numpy(final_data)
+        # Build enriched frames and events output
+        serialized_frames = []
+        match_start_ms = int(self.match_info.get("match_start_ms", 0)) if self.match_info else 0
+        home_team_name = self.match_info.get("home_team") if self.match_info else None
+        away_team_name = self.match_info.get("away_team") if self.match_info else None
 
+        team_id_map = self.match_info.get("team_id_map") if self.match_info else None
+
+        for frame_entry in self.frame_data:
+            fidx = frame_entry.get("frame")
+            objs = frame_entry.get("objects", [])
+
+            players = []
+            ball = None
+
+            for obj in objs:
+                cls = obj.get("class", "")
+                if cls == "ball":
+                    # ball speed conversion
+                    speed_kmh = obj.get("speed_kmh") if obj.get("speed_kmh") is not None else obj.get("speed")
+                    speed_ms = round(float(speed_kmh) / 3.6, 2) if speed_kmh is not None else 0.0
+                    ball = {
+                        "x": round(obj.get("x_m", 0.0), 2),
+                        "y": round(obj.get("y_m", 0.0), 2),
+                        "z": obj.get("z", 0),
+                        "speed_ms": speed_ms,
+                        "possession_team": self.match_info.get("possession_team") if self.match_info else None,
+                        "possession_player_id": self.current_possessor_id,
+                    }
+                    continue
+
+                if cls in ("player", "referee"):
+                    tracker_id = obj.get("id")
+                    raw_team = obj.get("team", "Unknown")
+
+                    # Determine team side: prefer explicit mapping in match_info
+                    team_side = None
+                    if isinstance(team_id_map, dict):
+                        # raw_team may be like 'Team 0' — try to parse the numeric id
+                        try:
+                            if isinstance(raw_team, str) and raw_team.startswith("Team "):
+                                tid = int(raw_team.split()[1])
+                                team_side = team_id_map.get(tid)
+                        except Exception:
+                            team_side = None
+
+                    # Fallback: match by team name if provided
+                    if team_side is None and home_team_name and isinstance(raw_team, str) and home_team_name in raw_team:
+                        team_side = "home"
+                    if team_side is None and away_team_name and isinstance(raw_team, str) and away_team_name in raw_team:
+                        team_side = "away"
+
+                    # Final fallback: keep raw_team
+                    team = team_side if team_side is not None else raw_team
+
+                    # Player id formatting — use home_/away_ prefix when team_side known
+                    if tracker_id is not None:
+                        if team_side in ("home", "away"):
+                            player_id = f"{team_side}_{tracker_id}"
+                        else:
+                            player_id = f"player_{tracker_id}"
+                    else:
+                        player_id = "unknown"
+
+                    # speed: convert from km/h to m/s if possible
+                    speed_kmh = obj.get("speed_kmh") if obj.get("speed_kmh") is not None else obj.get("speed")
+                    speed_ms = round(float(speed_kmh) / 3.6, 2) if speed_kmh is not None else 0.0
+
+                    # acceleration: use provided field or default 0.0
+                    acceleration = obj.get("acceleration", 0.0)
+
+                    in_poss = obj.get("possession", False)
+                    # If exporter-level possessor known, use it
+                    try:
+                        if tracker_id is not None and int(tracker_id) == int(self.current_possessor_id):
+                            in_poss = True
+                    except Exception:
+                        pass
+
+                    players.append({
+                        "player_id": player_id,
+                        "team": team,
+                        "jersey_number": obj.get("jersey_number", None),
+                        "position_label": obj.get("position_label", None),
+                        "x": round(obj.get("x_m", 0.0), 2),
+                        "y": round(obj.get("y_m", 0.0), 2),
+                        "speed_ms": speed_ms,
+                        "acceleration": acceleration,
+                        "in_possession": bool(in_poss),
+                    })
+
+            # default ball object if missing
+            if ball is None:
+                ball = {"x": 0.0, "y": 0.0, "z": 0, "speed_ms": 0.0, "possession_team": None, "possession_player_id": None}
+
+            # compute timestamp (game_clock formatting handled by integration utilities)
+            elapsed_ms = int((fidx / self.fps) * 1000)
+            timestamp_ms = match_start_ms + elapsed_ms
+            game_clock = None
+
+            # Build per-frame record
+            serialized_frames.append({
+                "frame_id": fidx,
+                "timestamp_ms": int(timestamp_ms),
+                "game_clock": game_clock,
+                "period": self.match_info.get("period") if self.match_info else None,
+                "players": players,
+                "ball": ball,
+            })
+
+        # Decide events array (prefer explicit events produced by EventsDetector)
+        events_array = self.events if self.events else self.passes
+
+        # Write separate events.json for consumers that expect only events
+        events_path = self.output_dir / "events.json"
         from .output_schema import write_json_atomic
+        write_json_atomic(events_path, convert_numpy(events_array))
+
+        # Analytics JSON: match_info + frames + metadata (no events included here)
+        final_data = {
+            "match_info": self.match_info or {},
+            "frames": serialized_frames,
+            "metadata": {"total_passes": len(self.passes), "frames": len(serialized_frames)},
+        }
+
+        final_data = convert_numpy(final_data)
         write_json_atomic(self.json_path, final_data)
-            
-        print(f"Data exporter finalized. Saved {self.csv_path} and {self.json_path}")
+
+        print(f"Data exporter finalized. Saved {self.csv_path}, {self.json_path}, and {events_path}")
