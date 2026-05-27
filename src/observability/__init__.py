@@ -1,5 +1,3 @@
-"""Observability package — logging, timing metrics, run summaries, errors, preflight, job status."""
-
 from .logger import get_logger, setup_logging
 from .metrics import PipelineMetrics
 from .run_summary import write_run_summary
@@ -19,7 +17,6 @@ from .errors import (
 )
 from .preflight import run_preflight
 from .job_status import JobStatus, read_job_status
-
 __all__ = [
     "get_logger", "setup_logging",
     "PipelineMetrics",
