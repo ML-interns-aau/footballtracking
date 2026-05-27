@@ -1,25 +1,13 @@
-"""
-tools/build_tracking_csv.py — Offline CSV builder CLI
-Usage:
-    python tools/build_tracking_csv.py \
-        --input  data/dummy_detections_200f.csv \
-        --output results/sample_tracking_output_200f.csv \
-        --fps 25.0
-"""
 import argparse, json, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 from src.pipeline.tracking_csv_builder import TrackingCSVBuilder
 from src.homography.pitch_mapping import PitchMapping
-
-
 def main(args):
     input_path  = Path(args.input)
     output_path = Path(args.output)
     if not input_path.exists():
         print(f"[ERROR] Input not found: {input_path}"); sys.exit(1)
-
     pitch_mapper = None
     if args.homography:
         h = Path(args.homography)
@@ -27,14 +15,11 @@ def main(args):
             cfg = json.loads(h.read_text())
             pitch_mapper = PitchMapping(src_points=cfg["src_points"], dst_points=cfg["dst_points"])
             print(f"[INFO] Loaded homography from {h}")
-
     builder = TrackingCSVBuilder(pitch_mapper=pitch_mapper, fps=args.fps, ema_alpha=args.ema_alpha)
     print(f"[INFO] Loading detections from {input_path} ...")
     builder.load_from_csv(str(input_path))
     print("[INFO] Computing features and writing CSV ...")
     builder.finalize_and_write(str(output_path))
-
-
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--input",      required=True)
