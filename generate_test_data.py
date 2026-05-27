@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-
 def generate_data(num_frames=200):
     records = []
     objects = [
@@ -31,6 +30,5 @@ def generate_data(num_frames=200):
     df = pd.DataFrame(records)
     df.to_csv("data/dummy_detections_200f.csv", index=False)
     print(f"[OK] Generated {num_frames} frames -> data/dummy_detections_200f.csv")
-
 if __name__ == "__main__":
     generate_data(200)

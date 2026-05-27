@@ -4,7 +4,6 @@ import numpy as np
 import sys
 from pathlib import Path
 from tqdm import tqdm
-
 from app.config import (
     MODEL_PATH,
     DEFAULT_CONF,
@@ -13,7 +12,7 @@ from app.config import (
     DEFAULT_TARGET_FPS,
     DEFAULT_RESIZE_W,
 )
-from src.config import CONFIG  # New centralized configuration
+from src.config import CONFIG
 from src.pipeline.detector import FootballDetector
 from src.pipeline.tracker import FootballTracker
 from src.pipeline.team_classifier import TeamClassifier
@@ -29,29 +28,13 @@ from src.pipeline.player_summary_csv_builder import PlayerSummaryCSVBuilder
 from src.pipeline.possession_summary_csv_builder import PossessionSummaryCSVBuilder
 from src.pipeline.output_schema import OutputFiles, OutputPathResolver
 from src.preprocessing.resolution_normalization import resize_frame
-
-
 def _get_device():
-    """Return 'cuda' if a CUDA GPU is available, else 'cpu'."""
     try:
         import torch
         return "cuda" if torch.cuda.is_available() else "cpu"
     except ImportError:
         return "cpu"
-
-
 def main(args, progress_callback=None):
-    """
-    Run the full football analytics pipeline.
-
-    Parameters
-    ----------
-    args : namespace with .input, .output_dir, .max_frames
-    progress_callback : optional callable(current_frame, total_frames)
-        Called after every frame so callers (e.g. Streamlit) can update a
-        progress bar without blocking the UI.
-    """
-    # Validate configuration on startup
     try:
         CONFIG.validate(raise_on_error=True)
         if CONFIG.get_environment() != 'default':
@@ -60,21 +43,13 @@ def main(args, progress_callback=None):
     except ValueError as e:
         print(f"[CONFIG ERROR] {e}", flush=True)
         raise
-    
     device = _get_device()
-
     input_path = Path(args.input)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Get game_id if provided
     game_id = getattr(args, 'game_id', None)
-    
-    # Use output_dir directly as game_output_dir (already game-specific from analysis_page)
-    # Initialize OutputPathResolver without creating nested folder
-    resolver = OutputPathResolver(output_dir, None)  # Don't create nested folder
-    game_output_dir = output_dir  # Use the already game-specific output_dir
-
+    resolver = OutputPathResolver(output_dir, None)
+    game_output_dir = output_dir
     target_fps = float(getattr(args, "target_fps", DEFAULT_TARGET_FPS) or 0)
     resize_width = int(getattr(args, "resize_width", DEFAULT_RESIZE_W) or 0)
     conf = float(getattr(args, "conf", DEFAULT_CONF))
@@ -82,60 +57,47 @@ def main(args, progress_callback=None):
     imgsz = int(getattr(args, "imgsz", DEFAULT_IMGSZ))
     device = getattr(args, "device", device)
     model_path = getattr(args, "model_path", MODEL_PATH)
-
     if isinstance(device, str) and device.isdigit():
         device = int(device)
-
     cap = cv2.VideoCapture(str(input_path))
     if not cap.isOpened():
         raise FileNotFoundError(f"Cannot open video: {input_path}")
-
     width        = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height       = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps          = cap.get(cv2.CAP_PROP_FPS) or 25.0
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
     if resize_width > 0:
         scale = resize_width / float(width)
         width = resize_width
         height = max(1, int(round(height * scale)))
-
     frame_step = 1
     effective_fps = fps
     if target_fps > 0 and fps > 0:
         frame_step = max(1, round(fps / target_fps))
         effective_fps = fps / frame_step
-
     planned_frames = 0
     if total_frames > 0:
         planned_frames = (total_frames + frame_step - 1) // frame_step
     if args.max_frames and args.max_frames > 0:
         planned_frames = min(planned_frames, args.max_frames) if planned_frames > 0 else args.max_frames
-
     print(
         f"[START] input={input_path} output_dir={output_dir} fps={fps:.2f} target_fps={target_fps:.2f} "
         f"frame_step={frame_step} planned_frames={planned_frames} conf={conf:.2f} iou={iou:.2f} "
         f"imgsz={imgsz} device={device if device is not None else 'auto'}",
         flush=True,
     )
-
     out_video_path = resolver.annotated_video()
-    # Use avc1 (H.264) so the output is browser-playable in st.video()
     fourcc = cv2.VideoWriter_fourcc(*"avc1")
     out = cv2.VideoWriter(str(out_video_path), fourcc, fps, (width, height))
     if not out.isOpened():
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         out = cv2.VideoWriter(str(out_video_path), fourcc, fps, (width, height))
-
     ret, initial_frame = cap.read()
     if not ret:
         raise ValueError("Failed to read first frame.")
-
-    # ── Initialise pipeline components ───────────────────────────────
     if not Path(model_path).exists():
         from dashboard.config import MODEL_PATH as DASHBOARD_MODEL_PATH
         model_path = DASHBOARD_MODEL_PATH
-
     detector        = FootballDetector(
         model_path=model_path,
         conf=CONFIG.get('detection.confidence_threshold', 0.30),
@@ -163,7 +125,6 @@ def main(args, progress_callback=None):
         pitch_height=CONFIG.get('pitch.height_m', 68)
     )
     visualizer      = PipelineVisualizer()
-
     src_pts = [
         [0,           height],
         [width,       height],
@@ -171,26 +132,19 @@ def main(args, progress_callback=None):
         [width * 0.25, height * 0.3],
     ]
     dst_pts = [[0, 68], [105, 68], [105, 0], [0, 0]]
-    
-    # Use PitchMapping for coordinate transformations
     try:
-        # Try to load from config file if it exists
         config_path = Path("configs/homography.json")
         if config_path.exists():
             pitch_mapper = PitchMapping.from_config(str(config_path))
         else:
-            # Use default calibration points
             pitch_mapper = PitchMapping(src_pts, dst_pts)
     except Exception:
-        # Fall back to default points
         pitch_mapper = PitchMapping(src_pts, dst_pts)
-    
     speed_estimator = SpeedEstimator(
         fps=effective_fps,
         pitch_mapper=pitch_mapper,
         window_size=CONFIG.get('speed.window_size', 8)
     )
-    # Inform exporter of processed FPS so it can compute timestamps/acceleration
     try:
         data_exporter.set_fps(effective_fps)
     except Exception:
@@ -199,41 +153,31 @@ def main(args, progress_callback=None):
     player_builder  = PlayerSummaryCSVBuilder()
     possession_builder = PossessionSummaryCSVBuilder()
     print("[PHASE] tracking and export components initialized", flush=True)
-
     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-
     max_frames = args.max_frames if args.max_frames > 0 else total_frames
     source_frame_idx = 0
     processed_frame_idx = 0
     pbar       = tqdm(total=planned_frames, unit="frame")
-
-    # ── Main processing loop ──────────────────────────────────────────
     while cap.isOpened():
         if planned_frames > 0 and processed_frame_idx >= planned_frames:
             break
         ret, frame = cap.read()
         if not ret:
             break
-
         if source_frame_idx % frame_step != 0:
             source_frame_idx += 1
             continue
-
         if processed_frame_idx % 25 == 0:
             total_label = planned_frames if planned_frames > 0 else "unknown"
             print(f"[PROGRESS] {processed_frame_idx}/{total_label}", flush=True)
-
         frame = resize_frame(frame, resize_width)
-
         detections = detector.detect(frame)
         tracked    = tracker.update(detections)
         team_ids   = team_classifier.assign_teams(frame, tracked)
         cam_dx, cam_dy = camera_motion.update(frame)
-
         ball_mask       = tracked.class_id == 32
         ball_detections = tracked[ball_mask] if np.any(ball_mask) else None
         ball_cx, ball_cy, ball_predicted = ball_tracker.update(frame, ball_detections)
-
         player_pixels      = []
         player_tracker_ids = []
         for i, (bbox, class_id, t_id) in enumerate(
@@ -244,13 +188,11 @@ def main(args, progress_callback=None):
             x1, y1, x2, y2 = bbox
             player_pixels.append([(x1 + x2) / 2, y2])
             player_tracker_ids.append(t_id)
-
         if player_pixels:
             speed_estimator.estimate_speed(
                 processed_frame_idx, player_tracker_ids,
                 np.array(player_pixels), cam_dx, cam_dy,
             )
-
         ball_pos_m = pitch_mapper.transform_point((ball_cx, ball_cy))
         speed_estimator.estimate_speed(
             processed_frame_idx,
@@ -259,21 +201,17 @@ def main(args, progress_callback=None):
             cam_dx, cam_dy,
         )
         ball_speed_kmh, _, _ = speed_estimator.get_stats(BallTracker.BALL_ID)
-
         frame_objs       = []
         player_positions = {}
-
         for i in range(len(tracked)):
             bbox     = tracked.xyxy[i]
             class_id = int(tracked.class_id[i])  if tracked.class_id  is not None else -1
             t_id     = int(tracked.tracker_id[i]) if tracked.tracker_id is not None else None
             tid      = int(team_ids[i])
-
             if class_id == 0 and t_id is not None:
                 speed, dist, (x_m, y_m) = speed_estimator.get_stats(t_id)
                 heatmap_analyzer.add_point(t_id, tid, x_m, y_m)
                 player_positions[t_id] = (x_m, y_m)
-
                 frame_objs.append({
                     "id":       t_id,
                     "class":    "referee" if tid == -2 else "player",
@@ -281,7 +219,6 @@ def main(args, progress_callback=None):
                     "x_m":     x_m,  "y_m":     y_m,
                     "speed":   speed, "distance": dist,
                 })
-
             elif class_id == 32:
                 frame_objs.append({
                     "id":    "",  "team":  "",  "class": "ball",
@@ -289,30 +226,21 @@ def main(args, progress_callback=None):
                     "y_m":  round(ball_pos_m[1], 2),
                     "speed": round(ball_speed_kmh, 2),
                 })
-
         data_exporter.log_frame(processed_frame_idx, frame_objs)
-        # Pass ball_speed_kmh for advanced possession/pass detection
         data_exporter.update_passes(processed_frame_idx, ball_pos_m, player_positions, ball_speed_kmh=ball_speed_kmh)
         csv_builder.add_frame(processed_frame_idx, tracked, team_ids)
-        
-        # Feed data to summary builders
         tracked_objects = []
         for i in range(len(tracked)):
             bbox = tracked.xyxy[i]
             class_id = int(tracked.class_id[i]) if tracked.class_id is not None else -1
             t_id = int(tracked.tracker_id[i]) if tracked.tracker_id is not None else -1
             team_id = int(team_ids[i])
-            
-            # Get speed and distance from speed_estimator
             speed_km_h, distance_m, _ = speed_estimator.get_stats(t_id) if t_id > 0 else (0.0, 0.0, (0.0, 0.0))
-            
-            # Determine possession (closest to ball within 2m)
             possession = False
-            if class_id == 0 and t_id > 0:  # Player only
+            if class_id == 0 and t_id > 0:
                 player_pos = pitch_mapper.transform_point(((bbox[0] + bbox[2]) / 2, bbox[3]))
                 dist_to_ball = ((player_pos[0] - ball_pos_m[0])**2 + (player_pos[1] - ball_pos_m[1])**2)**0.5
                 possession = dist_to_ball < CONFIG.get('possession.max_distance_m', 2.0)
-            
             tracked_objects.append({
                 'tracker_id': t_id,
                 'team_id': team_id,
@@ -323,10 +251,8 @@ def main(args, progress_callback=None):
                 'team': f"Team {team_id}" if team_id >= 0 else "Unknown",
                 'role': "player" if class_id == 0 else ("referee" if class_id == 3 else "unknown")
             })
-        
         player_builder.add_frame(processed_frame_idx, tracked_objects)
         possession_builder.add_frame(processed_frame_idx, tracked_objects)
-
         annotated = visualizer.annotate_frame(
             frame             = frame,
             detections        = tracked,
@@ -338,36 +264,23 @@ def main(args, progress_callback=None):
             frame_idx         = processed_frame_idx,
         )
         out.write(annotated)
-
         processed_frame_idx += 1
         source_frame_idx += 1
         pbar.update(1)
-
-        # Notify caller of progress (used by Streamlit progress bar)
         if progress_callback is not None:
             progress_callback(processed_frame_idx, planned_frames)
-
     pbar.close()
     cap.release()
     out.release()
-
     data_exporter.finalize()
-    
-    # Generate all unified outputs with game-specific folder (resolver already initialized)
-    
-    # Heatmaps
     heatmap_analyzer.save_team_heatmap(0, output_path=str(resolver.heatmap_path(0)))
     heatmap_analyzer.save_team_heatmap(1, output_path=str(resolver.heatmap_path(1)))
-    
-    # CSV outputs
     tracking_csv_path = resolver.tracking_csv()
     player_summary_path = resolver.player_summary_csv()
     possession_summary_path = resolver.possession_summary_csv()
-    
     csv_builder.finalize_and_write(tracking_csv_path)
     player_builder.finalize_and_write(player_summary_path)
     possession_builder.finalize_and_write(possession_summary_path)
-    
     print(f"[UNIFIED OUTPUTS] Generated all files in {game_output_dir}:")
     print(f"  - {OutputFiles.TRACKING} ({len(tracking_csv_path.read_text().splitlines()) if tracking_csv_path.exists() else 0} lines)")
     print(f"  - {OutputFiles.PLAYER_SUMMARY} ({len(player_summary_path.read_text().splitlines()) if player_summary_path.exists() else 0} lines)")
@@ -376,7 +289,6 @@ def main(args, progress_callback=None):
     print(f"  - {OutputFiles.ANALYTICS_JSON} ({len(analytics_json_path.read_text().splitlines()) if analytics_json_path.exists() else 0} lines)")
     print(f"  - {OutputFiles.HEATMAP_TEAM_0} ({'exists' if resolver.heatmap_path(0).exists() else 'missing'})")
     print(f"  - {OutputFiles.HEATMAP_TEAM_1} ({'exists' if resolver.heatmap_path(1).exists() else 'missing'})")
-
     return {
         "total_frames": processed_frame_idx,
         "fps": fps,
@@ -385,8 +297,6 @@ def main(args, progress_callback=None):
         "game_id": game_id,
         "game_folder": str(game_output_dir),
     }
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Football Analytics Pipeline")
     parser.add_argument("--input",      type=str, required=True)
