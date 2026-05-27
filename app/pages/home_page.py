@@ -1,10 +1,7 @@
 import base64
 import os
-
 import streamlit as st
 import streamlit.components.v1 as components
-
-
 _LP_ICONS = {
     "detection": '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 3.75H6A2.25 2.25 0 003.75 6v1.5M16.5 3.75H18A2.25 2.25 0 0120.25 6v1.5m0 9V18A2.25 2.25 0 0118 20.25h-1.5m-9 0H6A2.25 2.25 0 013.75 18v-1.5M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>',
     "tracking": '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" /></svg>',
@@ -15,7 +12,6 @@ _LP_ICONS = {
     "camera": '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" /></svg>',
     "export": '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>',
 }
-
 _ABOUT_PLACEHOLDER_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 200" width="240" height="200">'
     '<rect fill="#0d0d12" width="240" height="200" rx="16"/>'
@@ -25,7 +21,6 @@ _ABOUT_PLACEHOLDER_SVG = (
     'd="M175 75l18-12M182 68l14-20M188 82l22-6"/>'
     "</svg>"
 )
-
 _HERO_ICON_ORDER = (
     "detection",
     "tracking",
@@ -36,7 +31,6 @@ _HERO_ICON_ORDER = (
     "camera",
     "export",
 )
-
 _PIPELINE_SLIDES = [
     ("detection", "Detection"),
     ("tracking", "Tracking"),
@@ -47,7 +41,6 @@ _PIPELINE_SLIDES = [
     ("camera", "Camera"),
     ("export", "Export"),
 ]
-
 _TEAM_MEMBERS = [
     ("tse-coder", "Core contributor"),
     ("BytePhilosopher", "Core contributor"),
@@ -55,7 +48,6 @@ _TEAM_MEMBERS = [
     ("halafiCodes", "Core contributor"),
     ("abeladamushumet", "Core contributor"),
 ]
-
 _LANDING_PAGE_CSS = """
 <style>
 .lp-hero {
@@ -114,7 +106,7 @@ _LANDING_PAGE_CSS = """
 .lp-h1 {
     font-size: clamp(2.25rem, 5vw, 3.25rem);
     font-weight: 800;
-    color: #f5f5f5;
+    color:
     letter-spacing: -0.045em;
     line-height: 1.08;
     margin: 0 0 1.1rem;
@@ -122,7 +114,7 @@ _LANDING_PAGE_CSS = """
 }
 .lp-h1 em {
     font-style: normal;
-    background: linear-gradient(135deg, #dc2626 0%, #f87171 100%);
+    background: linear-gradient(135deg,
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -144,7 +136,7 @@ _LANDING_PAGE_CSS = """
     justify-content: center;
     background: rgba(255,255,255,0.05);
     border: 1px solid rgba(255,255,255,0.08);
-    color: #dc2626;
+    color:
 }
 .lp-hero-icon svg { width: 20px; height: 20px; }
 .lp-hero-enter {
@@ -158,9 +150,9 @@ _LANDING_PAGE_CSS = """
     font-size: 0.78rem;
     font-weight: 700;
     letter-spacing: 0.01em;
-    color: #f5f5f5 !important;
+    color:
     text-decoration: none !important;
-    background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+    background: linear-gradient(135deg,
     border: 1px solid rgba(220,38,38,0.35);
     box-shadow: 0 2px 16px rgba(220,38,38,0.22);
     z-index: 2;
@@ -244,7 +236,7 @@ _LANDING_PAGE_CSS = """
     text-align: center;
     font-size: 0.52rem;
     font-weight: 700;
-    color: #6b6b78;
+    color:
     text-transform: uppercase;
     letter-spacing: 0.16em;
     margin-bottom: 0.45rem;
@@ -253,14 +245,14 @@ _LANDING_PAGE_CSS = """
     text-align: center;
     font-size: clamp(1.05rem, 2.2vw, 1.28rem);
     font-weight: 700;
-    color: #f5f5f5;
+    color:
     letter-spacing: -0.03em;
     margin-bottom: 1.65rem;
     line-height: 1.3;
 }
 .lp-h2 em {
     font-style: normal;
-    background: linear-gradient(135deg, #dc2626, #f87171);
+    background: linear-gradient(135deg,
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -276,8 +268,8 @@ _LANDING_PAGE_CSS = """
     overflow: hidden;
     width: 100%;
     padding: 0.6rem 0 1rem;
-    mask-image: linear-gradient(90deg, transparent 0%, #000 6%, #000 94%, transparent 100%);
-    -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 6%, #000 94%, transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0%,
+    -webkit-mask-image: linear-gradient(90deg, transparent 0%,
 }
 .lp-marquee-track {
     display: flex;
@@ -308,7 +300,7 @@ _LANDING_PAGE_CSS = """
     padding: 1rem 0.65rem 1.1rem;
     border-radius: 12px;
     border: 1px solid rgba(255,255,255,0.08);
-    background: linear-gradient(165deg, #12121a 0%, #0a0a0f 100%);
+    background: linear-gradient(165deg,
     text-align: center;
     box-shadow: 0 8px 28px rgba(0,0,0,0.3);
 }
@@ -322,13 +314,13 @@ _LANDING_PAGE_CSS = """
     justify-content: center;
     background: rgba(220,38,38,0.08);
     border: 1px solid rgba(220,38,38,0.16);
-    color: #dc2626;
+    color:
 }
 .lp-mq-icon svg { width: 24px; height: 24px; }
 .lp-mq-title {
     font-size: 0.72rem;
     font-weight: 600;
-    color: #f5f5f5;
+    color:
     letter-spacing: -0.02em;
     margin: 0;
     line-height: 1.25;
@@ -351,7 +343,7 @@ _LANDING_PAGE_CSS = """
     padding: 2rem clamp(0.5rem, 2vw, 1rem);
     border-radius: 14px;
     border: 1px solid rgba(255,255,255,0.06);
-    background: #0a0a0f;
+    background:
 }
 .lp-team-grid {
     display: grid;
@@ -384,23 +376,18 @@ _LANDING_PAGE_CSS = """
 .lp-team-name {
     font-size: 0.8rem;
     font-weight: 700;
-    color: #f5f5f5;
+    color:
     letter-spacing: -0.02em;
     margin-bottom: 0.2rem;
 }
 .lp-team-role {
     font-size: 0.65rem;
-    color: #6b6b78;
+    color:
     line-height: 1.35;
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
 </style>
-"""
-
-
-def _about_us_component_html(image_data_url: str) -> str:
-    return """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -411,9 +398,9 @@ def _about_us_component_html(image_data_url: str) -> str:
     html, body {
       margin: 0;
       padding: 0;
-      background: #030305;
+      background:
       font-family: 'Inter', system-ui, sans-serif;
-      color: #f5f5f5;
+      color:
       -webkit-font-smoothing: antialiased;
     }
     .about-root {
@@ -436,7 +423,7 @@ def _about_us_component_html(image_data_url: str) -> str:
       border-radius: 18px;
       overflow: hidden;
       border: 1px solid rgba(255,255,255,0.08);
-      background: #101018;
+      background:
       aspect-ratio: 4 / 3;
       box-shadow: 0 20px 50px rgba(0,0,0,0.45);
     }
@@ -498,7 +485,7 @@ def _about_us_component_html(image_data_url: str) -> str:
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.18em;
-      color: #6b6b78;
+      color:
       margin: 0 0 0.5rem;
     }
     .about-h2 {
@@ -510,7 +497,7 @@ def _about_us_component_html(image_data_url: str) -> str:
     }
     .about-h2 em {
       font-style: normal;
-      background: linear-gradient(135deg, #dc2626, #f87171);
+      background: linear-gradient(135deg,
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
@@ -518,7 +505,7 @@ def _about_us_component_html(image_data_url: str) -> str:
     .about-p {
       font-size: 0.82rem;
       line-height: 1.65;
-      color: #9a9aa8;
+      color:
       margin: 0 0 0.65rem;
     }
     .about-p:last-child { margin-bottom: 0; }
@@ -549,39 +536,6 @@ def _about_us_component_html(image_data_url: str) -> str:
   </div>
 </body>
 </html>
-""".replace("__SRC__", image_data_url)
-
-
-def _load_base64_image(filename: str) -> str:
-    image_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "images", filename)
-    if not os.path.exists(image_path):
-        return ""
-    with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode()
-
-
-def _render_about_us(image_data_url: str) -> None:
-    components.html(
-        _about_us_component_html(image_data_url),
-        height=460,
-        scrolling=False,
-    )
-
-
-def _render_hero() -> None:
-    hero_image_b64 = _load_base64_image("images.jpeg")
-    if hero_image_b64:
-        background_style = f"background-image:url('data:image/jpeg;base64,{hero_image_b64}');"
-    else:
-        background_style = "background:linear-gradient(160deg,#07070c,#0d0d12 50%,#0a0008);"
-
-    hero_icons_html = "".join(
-        f'<span class="lp-hero-icon" aria-hidden="true">{_LP_ICONS[key]}</span>'
-        for key in _HERO_ICON_ORDER
-    )
-
-    st.markdown(
-        f"""
         <div class="lp-hero lp-hero--split" style="{background_style}">
             <div class="lp-inner lp-inner--split">
                 <a class="lp-hero-enter" href="?page=Upload" target="_self" rel="noopener">Enter pipeline</a>
@@ -590,81 +544,8 @@ def _render_hero() -> None:
                 <div class="lp-hero-icons">{hero_icons_html}</div>
             </div>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _render_about_section() -> None:
-    st.markdown("<div style='height:1.75rem'></div>", unsafe_allow_html=True)
-    st.markdown('<div class="lp-about-spacer"></div>', unsafe_allow_html=True)
-
-    about_image_b64 = _load_base64_image("image.png")
-    if about_image_b64:
-        about_url = f"data:image/png;base64,{about_image_b64}"
-    else:
-        about_url = (
-            "data:image/svg+xml;base64,"
-            + base64.b64encode(_ABOUT_PLACEHOLDER_SVG.encode()).decode()
-        )
-
-    _render_about_us(about_url)
-    st.markdown("<div style='height:1.5rem'></div>", unsafe_allow_html=True)
-
-
-def _mq_item(icon_key: str, title: str) -> str:
-    svg = _LP_ICONS[icon_key]
-    return (
-        '<div class="lp-marquee-item">'
-        '<div class="lp-marquee-card">'
-        f'<div class="lp-mq-icon" aria-hidden="true">{svg}</div>'
-        f'<p class="lp-mq-title">{title}</p>'
-        "</div></div>"
-    )
-
-
-def _render_pipeline_section() -> None:
-    st.markdown(
-        '<div class="lp-h2" style="margin-bottom:1rem">Pipeline</div>',
-        unsafe_allow_html=True,
-    )
-
-    marquee_row = "".join(_mq_item(icon_key, title) for icon_key, title in _PIPELINE_SLIDES)
-    carousel_html = (
-        '<div class="lp-marquee-outer" aria-label="Pipeline capabilities">'
-        '<div class="lp-marquee-viewport">'
-        '<div class="lp-marquee-track">'
-        + marquee_row
-        + marquee_row
-        + "</div></div></div>"
-    )
-    st.markdown(carousel_html, unsafe_allow_html=True)
-
-
-def _render_team_section() -> None:
-    cards = "".join(
-        f'<div class="lp-team-card">'
-        f'<img class="lp-team-photo" src="https://github.com/{name}.png" width="112" height="112" alt="{name}" />'
-        f'<div class="lp-team-name">{name}</div>'
-        f'<div class="lp-team-role">{role}</div>'
-        f"</div>"
-        for name, role in _TEAM_MEMBERS
-    )
-    st.markdown(
-        f"""
         <div class="lp-team-wrap">
           <div class="lp-label">Squad</div>
           <div class="lp-h2">Meet the <em>team</em></div>
           <div class="lp-team-grid">{cards}</div>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def render() -> None:
-    st.markdown(_LANDING_PAGE_CSS, unsafe_allow_html=True)
-    _render_hero()
-    _render_about_section()
-    _render_pipeline_section()
-    _render_team_section()
