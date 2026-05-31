@@ -27,6 +27,7 @@ from src.pipeline.tracking_csv_builder import TrackingCSVBuilder
 from src.pipeline.player_summary_csv_builder import PlayerSummaryCSVBuilder
 from src.pipeline.possession_summary_csv_builder import PossessionSummaryCSVBuilder
 from src.pipeline.output_schema import OutputFiles, OutputPathResolver
+from src.pipeline.events import EventsDetector
 from src.preprocessing.resolution_normalization import resize_frame
 def _get_device():
     try:
@@ -134,6 +135,11 @@ def main(args, progress_callback=None):
         pitch_height=CONFIG.get('pitch.height_m', 68)
     )
     visualizer      = PipelineVisualizer()
+    events_detector = EventsDetector(
+        fps=effective_fps,
+        pitch_width_m=CONFIG.get('pitch.width_m', 105),
+        pitch_height_m=CONFIG.get('pitch.height_m', 68),
+    )
     src_pts = [
         [0,           height],
         [width,       height],
@@ -237,6 +243,21 @@ def main(args, progress_callback=None):
                 })
         data_exporter.log_frame(processed_frame_idx, frame_objs)
         data_exporter.update_passes(processed_frame_idx, ball_pos_m, player_positions, ball_speed_kmh=ball_speed_kmh)
+        # Build a team-label lookup for the event detector
+        player_teams_map: dict[int, str] = {
+            obj["id"]: obj["team"]
+            for obj in frame_objs
+            if obj.get("class") in ("player", "referee") and obj.get("id") is not None
+        }
+        events_detector.process_frame(
+            frame_idx=processed_frame_idx,
+            ball_pos_m=ball_pos_m,
+            player_positions=player_positions,
+            player_teams=player_teams_map,
+            ball_speed_kmh=ball_speed_kmh,
+            data_exporter=data_exporter,
+            ball_trail=ball_tracker.get_trail(),
+        )
         csv_builder.add_frame(processed_frame_idx, tracked, team_ids)
         tracked_objects = []
         for i in range(len(tracked)):
