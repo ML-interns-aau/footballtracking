@@ -1,6 +1,11 @@
 import csv
 import json
 from pathlib import Path
+
+# Resolve the project root (two levels up from src/pipeline/) so that
+# events.json is always written to <project_root>/data/events.json.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_DATA_DIR = _PROJECT_ROOT / "data"
 class DataExporter:
     def __init__(self, output_dir: str):
         self.output_dir = Path(output_dir)
@@ -223,7 +228,9 @@ class DataExporter:
                 "ball": ball,
             })
         events_array = self.events if self.events else self.passes
-        events_path = self.output_dir / "events.json"
+        # Always write events.json to the project-level data/ folder.
+        _DATA_DIR.mkdir(parents=True, exist_ok=True)
+        events_path = _DATA_DIR / "events.json"
         from .output_schema import write_json_atomic
         write_json_atomic(events_path, convert_numpy(events_array))
         final_data = {
