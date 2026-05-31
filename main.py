@@ -242,7 +242,6 @@ def main(args, progress_callback=None):
                     "speed": round(ball_speed_kmh, 2),
                 })
         data_exporter.log_frame(processed_frame_idx, frame_objs)
-        data_exporter.update_passes(processed_frame_idx, ball_pos_m, player_positions, ball_speed_kmh=ball_speed_kmh)
         # Build a team-label lookup for the event detector
         player_teams_map: dict[int, str] = {
             obj["id"]: obj["team"]

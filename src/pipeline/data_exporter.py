@@ -21,15 +21,6 @@ class DataExporter:
         with open(self.csv_path, mode='w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(AnalyticsCSVColumns.all_columns())
-        self.current_possessor_id = None
-        self.contact_frames = 0
-        self.loose_ball_frames = 0
-        self.last_ball_possessor = None
-        self.passes = []
-        self.POSSESSION_RADIUS = 1.5
-        self.MIN_POSSESSION_FRAMES = 5
-        self.MIN_LOOSE_FRAMES = 15
-        self.PASS_SPEED_THRESHOLD = 20
     def log_frame(self, frame_idx: int, frame_objects: list[dict]):
         self.frame_data.append({
             "frame": frame_idx,
@@ -82,46 +73,7 @@ class DataExporter:
                 self._last_speeds[tid] = speed_ms
             except Exception:
                 pass
-    def update_passes(self, frame_idx: int, ball_pos: tuple[float, float], player_positions: dict[int, tuple[float, float]], ball_speed_kmh: float = 0.0):
-        if ball_pos == (0.0, 0.0):
-            return
-        closest_dist = float('inf')
-        closest_player_id = None
-        for p_id, p_pos in player_positions.items():
-            dist = ((ball_pos[0] - p_pos[0])**2 + (ball_pos[1] - p_pos[1])**2)**0.5
-            if dist < closest_dist:
-                closest_dist = dist
-                closest_player_id = p_id
-        in_range = closest_player_id is not None and closest_dist <= self.POSSESSION_RADIUS
-        if in_range:
-            if closest_player_id == self.current_possessor_id:
-                self.contact_frames += 1
-                self.loose_ball_frames = 0
-            else:
-                self.contact_frames += 1
-                if self.contact_frames >= self.MIN_POSSESSION_FRAMES:
-                    if self.current_possessor_id is not None:
-                        if ball_speed_kmh > self.PASS_SPEED_THRESHOLD:
-                            pass_record = {
-                                "passer_id": self.current_possessor_id,
-                                "receiver_id": closest_player_id,
-                                "start_frame": self.last_ball_possessor[1] if self.last_ball_possessor else 0,
-                                "end_frame": frame_idx,
-                                "ball_speed": round(ball_speed_kmh, 2)
-                            }
-                            self.passes.append(pass_record)
-                            print(f"[EVENT] Pass detected: Player {self.current_possessor_id} -> Player {closest_player_id} (Speed: {ball_speed_kmh:.1f} km/h)")
-                    self.current_possessor_id = closest_player_id
-                    self.last_ball_possessor = (closest_player_id, frame_idx)
-                    self.contact_frames = 0
-                    self.loose_ball_frames = 0
-        else:
-            self.contact_frames = 0
-            if self.current_possessor_id is not None:
-                self.loose_ball_frames += 1
-                if self.loose_ball_frames > self.MIN_LOOSE_FRAMES or ball_speed_kmh > self.PASS_SPEED_THRESHOLD:
-                    self.current_possessor_id = None
-                    self.loose_ball_frames = 0
+
     def set_match_info(self, match_info: dict):
         self.match_info = dict(match_info) if match_info is not None else {}
     def add_event(self, event: dict):
@@ -168,7 +120,7 @@ class DataExporter:
                         "z": obj.get("z", 0),
                         "speed_ms": speed_ms,
                         "possession_team": self.match_info.get("possession_team") if self.match_info else None,
-                        "possession_player_id": self.current_possessor_id,
+                        "possession_player_id": None,
                     }
                     continue
                 if cls in ("player", "referee"):
@@ -198,11 +150,6 @@ class DataExporter:
                     speed_ms = round(float(speed_kmh) / 3.6, 2) if speed_kmh is not None else 0.0
                     acceleration = obj.get("acceleration", 0.0)
                     in_poss = obj.get("possession", False)
-                    try:
-                        if tracker_id is not None and int(tracker_id) == int(self.current_possessor_id):
-                            in_poss = True
-                    except Exception:
-                        pass
                     players.append({
                         "player_id": player_id,
                         "team": team,
@@ -227,16 +174,18 @@ class DataExporter:
                 "players": players,
                 "ball": ball,
             })
-        events_array = self.events if self.events else self.passes
+        events_array = self.events
         # Always write events.json to the project-level data/ folder.
         _DATA_DIR.mkdir(parents=True, exist_ok=True)
         events_path = _DATA_DIR / "events.json"
         from .output_schema import write_json_atomic
         write_json_atomic(events_path, convert_numpy(events_array))
+        
+        total_passes = sum(1 for e in self.events if e.get("event_type") == "PASS_COMPLETED")
         final_data = {
             "match_info": self.match_info or {},
             "frames": serialized_frames,
-            "metadata": {"total_passes": len(self.passes), "frames": len(serialized_frames)},
+            "metadata": {"total_passes": total_passes, "frames": len(serialized_frames)},
         }
         final_data = convert_numpy(final_data)
         write_json_atomic(self.json_path, final_data)

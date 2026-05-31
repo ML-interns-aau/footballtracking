@@ -54,11 +54,11 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 # --- Pass ---
-_PASS_POSSESSION_RADIUS_M: float = 2.0       # ball must be this close to grant possession
-_PASS_MIN_POSSESSION_FRAMES: int = 4         # frames of contact needed to confirm possession
+_PASS_POSSESSION_RADIUS_M: float = 3.5       # ball must be this close to grant possession
+_PASS_MIN_POSSESSION_FRAMES: int = 2         # frames of contact needed to confirm possession
 _PASS_MIN_LOOSE_FRAMES: int = 8             # frames the ball must be free before a pass is logged
-_PASS_MIN_BALL_SPEED_KMH: float = 15.0      # minimum ball speed to even consider a pass
-_PASS_HIGH_SPEED_RELEASE_KMH: float = 25.0  # immediate possession-loss if ball this fast
+_PASS_MIN_BALL_SPEED_KMH: float = 5.0       # minimum ball speed to even consider a pass
+_PASS_HIGH_SPEED_RELEASE_KMH: float = 15.0  # immediate possession-loss if ball this fast
 
 # --- Skill move ---
 _SKILL_MIN_POSSESSION_FRAMES: int = 6        # player must be near ball for at least N frames
@@ -100,12 +100,17 @@ class EventsDetector:
         # ------------------------------------------------------------------ #
         # Possession / pass state                                              #
         # ------------------------------------------------------------------ #
+        self._state: str = "LOOSE_BALL"
         self._possessor_id: int | None = None
         self._possessor_team: str | None = None
-        self._contact_frames: int = 0          # consecutive frames closest player is in range
-        self._candidate_id: int | None = None  # player who is accumulating contact frames
+        self._contact_frames: int = 0
+        self._candidate_id: int | None = None
         self._candidate_team: str | None = None
-        self._loose_frames: int = 0            # frames since last possessor lost the ball
+        self._pass_start_frame: int = 0
+        self._pass_start_xy: tuple[float, float] = (0.0, 0.0)
+        self._pass_id_counter: int = 1
+        self._pass_duration_frames: int = 0
+        self._MAX_PASS_DURATION_FRAMES: int = 75
         self._last_possessor_id: int | None = None
         self._last_possessor_team: str | None = None
         self._last_possession_frame: int = 0
@@ -216,123 +221,138 @@ class EventsDetector:
         ball_speed_kmh: float,
         data_exporter: "DataExporter",
     ) -> None:
-        """
-        State-machine pass detector.
-
-        States:
-          LOOSE  → no possessor
-          OWNED  → a player has confirmed possession
-
-        Transitions:
-          LOOSE → OWNED : candidate accumulates MIN_POSSESSION_FRAMES contacts
-          OWNED → OWNED : possessor changes → emit pass
-          OWNED → LOOSE : ball speed spike or many consecutive frames out-of-range
-        """
         closest_id, closest_dist = self._find_closest_player(bx, by, player_positions)
-        in_range = (
-            closest_id is not None
-            and closest_dist <= _PASS_POSSESSION_RADIUS_M
-        )
-
-        if in_range and closest_id is not None:
-            if self._possessor_id is None:
-                # Ball is loose – accumulate candidate contact
-                if closest_id == self._candidate_id:
-                    self._contact_frames += 1
-                else:
-                    # New candidate – restart counter
-                    self._candidate_id = closest_id
-                    self._candidate_team = player_teams.get(closest_id)
-                    self._contact_frames = 1
-
-                if self._contact_frames >= _PASS_MIN_POSSESSION_FRAMES:
-                    # Confirm possession
-                    self._possessor_id = self._candidate_id
-                    self._possessor_team = self._candidate_team
-                    self._loose_frames = 0
-                    self._candidate_id = None
-                    self._candidate_team = None
-                    self._contact_frames = 0
-
+        
+        confidence = 0.0
+        if closest_id is not None and closest_dist <= _PASS_POSSESSION_RADIUS_M:
+            confidence = max(0.0, 1.0 - (closest_dist / _PASS_POSSESSION_RADIUS_M))
+            if closest_id == self._candidate_id:
+                self._contact_frames += 1
             else:
-                # Ball already owned
-                if closest_id == self._possessor_id:
-                    # Same possessor – reset loose counter
-                    self._loose_frames = 0
-                else:
-                    # Different player has the ball
-                    if closest_id == self._candidate_id:
-                        self._contact_frames += 1
-                    else:
-                        self._candidate_id = closest_id
-                        self._candidate_team = player_teams.get(closest_id)
-                        self._contact_frames = 1
-
-                    if self._contact_frames >= _PASS_MIN_POSSESSION_FRAMES:
-                        # Possession changed → emit pass if ball was fast enough
-                        if ball_speed_kmh >= _PASS_MIN_BALL_SPEED_KMH:
-                            event = self._build_pass_event(
-                                frame_idx, timestamp_ms,
-                                self._possessor_id, self._possessor_team,
-                                self._candidate_id, self._candidate_team,
-                                ball_speed_kmh,
-                            )
-                            data_exporter.add_event(event)
-
-                        # Transfer possession regardless of speed
-                        self._last_possessor_id = self._possessor_id
-                        self._last_possessor_team = self._possessor_team
-                        self._last_possession_frame = frame_idx
-                        self._possessor_id = self._candidate_id
-                        self._possessor_team = self._candidate_team
-                        self._candidate_id = None
-                        self._candidate_team = None
-                        self._contact_frames = 0
-                        self._loose_frames = 0
+                self._candidate_id = closest_id
+                self._candidate_team = player_teams.get(closest_id)
+                self._contact_frames = 1
         else:
-            # Ball not near any player
             self._contact_frames = 0
             self._candidate_id = None
             self._candidate_team = None
 
-            if self._possessor_id is not None:
-                self._loose_frames += 1
-                # High-speed release or too many out-of-range frames → loose ball
-                high_speed_release = ball_speed_kmh >= _PASS_HIGH_SPEED_RELEASE_KMH
-                if self._loose_frames >= _PASS_MIN_LOOSE_FRAMES or high_speed_release:
-                    self._last_possessor_id = self._possessor_id
-                    self._last_possessor_team = self._possessor_team
-                    self._last_possession_frame = frame_idx
+        is_controlled = (confidence > 0.75 and self._contact_frames >= 2) or (self._contact_frames >= _PASS_MIN_POSSESSION_FRAMES)
+
+        if self._state == "LOOSE_BALL":
+            if is_controlled and self._candidate_id is not None:
+                self._state = "CONTROLLED"
+                self._possessor_id = self._candidate_id
+                self._possessor_team = self._candidate_team
+                self._last_possessor_id = self._possessor_id
+                self._last_possessor_team = self._possessor_team
+                self._last_possession_frame = frame_idx
+
+        elif self._state == "CONTROLLED":
+            if is_controlled and self._candidate_id == self._possessor_id:
+                self._last_possession_frame = frame_idx
+            elif is_controlled and self._candidate_id != self._possessor_id:
+                self._state = "PASS_IN_PROGRESS"
+                self._pass_start_frame = self._last_possession_frame
+                self._pass_start_xy = (bx, by)
+                self._pass_duration_frames = frame_idx - self._pass_start_frame
+            else:
+                if ball_speed_kmh >= 5.0:
+                    self._state = "PASS_IN_PROGRESS"
+                    self._pass_start_frame = self._last_possession_frame
+                    self._pass_start_xy = (bx, by)
+                    self._pass_duration_frames = 0
+                    
+                    attempt_event = {
+                        "type": "pass",
+                        "event_type": "PASS_ATTEMPT",
+                        "pass_id": self._pass_id_counter,
+                        "frame": frame_idx,
+                        "timestamp_ms": timestamp_ms,
+                        "passer_id": self._possessor_id,
+                        "passer_team": self._possessor_team,
+                        "receiver_id": None,
+                        "receiver_team": None,
+                        "ball_speed_kmh": round(float(ball_speed_kmh), 2),
+                        "start_xy": [round(self._pass_start_xy[0], 2), round(self._pass_start_xy[1], 2)],
+                        "end_xy": [0.0, 0.0],
+                        "successful": False,
+                        "intercepted": False,
+                        "distance_m": 0.0,
+                        "duration_frames": 0,
+                        "pass_type": "standard",
+                        "validation": {
+                            "same_team": False,
+                            "distance_valid": False,
+                            "speed_valid": False
+                        }
+                    }
+                    data_exporter.add_event(attempt_event)
+                else:
+                    self._state = "LOOSE_BALL"
                     self._possessor_id = None
                     self._possessor_team = None
-                    self._loose_frames = 0
 
-    @staticmethod
-    def _build_pass_event(
-        frame_idx: int,
-        timestamp_ms: int,
-        passer_id: int | None,
-        passer_team: str | None,
-        receiver_id: int | None,
-        receiver_team: str | None,
-        ball_speed_kmh: float,
-    ) -> dict:
-        return {
-            "type": "pass",
-            "frame": frame_idx,
-            "timestamp_ms": timestamp_ms,
-            "passer_id": passer_id,
-            "passer_team": passer_team,
-            "receiver_id": receiver_id,
-            "receiver_team": receiver_team,
-            "ball_speed_kmh": round(float(ball_speed_kmh), 2),
-            # fields not applicable to this event type
-            "player_id": None,
-            "team": None,
-            "direction_change_deg": None,
-            "origin_x_m": None,
-            "origin_y_m": None,
-        }
+        if self._state == "PASS_IN_PROGRESS":
+            self._pass_duration_frames += 1
+            has_touch = (closest_id is not None and closest_dist <= _PASS_POSSESSION_RADIUS_M)
+            
+            if has_touch:
+                if closest_id == self._possessor_id:
+                    self._state = "CONTROLLED"
+                else:
+                    receiver_id = closest_id
+                    receiver_team = player_teams.get(receiver_id)
+                    same_team = (receiver_team == self._possessor_team and receiver_team is not None)
+                    
+                    dist_m = math.hypot(bx - self._pass_start_xy[0], by - self._pass_start_xy[1])
+                    pass_type = "standard"
+                    if dist_m > 25.0:
+                        pass_type = "long_ball"
+                    
+                    dist_valid = dist_m > 2.0
+                    speed_valid = ball_speed_kmh < 150.0
+                    
+                    event_type = "PASS_COMPLETED" if same_team else "PASS_INTERCEPTED"
+                    
+                    completed_event = {
+                        "type": "pass",
+                        "event_type": event_type,
+                        "pass_id": self._pass_id_counter,
+                        "frame": frame_idx,
+                        "timestamp_ms": timestamp_ms,
+                        "passer_id": self._possessor_id,
+                        "passer_team": self._possessor_team,
+                        "receiver_id": receiver_id,
+                        "receiver_team": receiver_team,
+                        "ball_speed_kmh": round(float(ball_speed_kmh), 2),
+                        "start_xy": [round(self._pass_start_xy[0], 2), round(self._pass_start_xy[1], 2)],
+                        "end_xy": [round(bx, 2), round(by, 2)],
+                        "successful": same_team,
+                        "intercepted": not same_team,
+                        "distance_m": round(dist_m, 2),
+                        "duration_frames": self._pass_duration_frames,
+                        "pass_type": pass_type,
+                        "validation": {
+                            "same_team": same_team,
+                            "distance_valid": dist_valid,
+                            "speed_valid": speed_valid
+                        }
+                    }
+                    data_exporter.add_event(completed_event)
+                    self._pass_id_counter += 1
+                    
+                    self._state = "CONTROLLED"
+                    self._possessor_id = receiver_id
+                    self._possessor_team = receiver_team
+                    self._last_possessor_id = receiver_id
+                    self._last_possessor_team = receiver_team
+                    self._last_possession_frame = frame_idx
+                    
+            elif self._pass_duration_frames > self._MAX_PASS_DURATION_FRAMES:
+                self._state = "LOOSE_BALL"
+                self._possessor_id = None
+                self._possessor_team = None
 
     # ---------------------------------------------------------------------- #
     # Skill-move detection                                                    #

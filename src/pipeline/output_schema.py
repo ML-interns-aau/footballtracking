@@ -93,11 +93,30 @@ class PossessionSummaryCSVColumns:
     @classmethod
     def all_columns(cls) -> List[str]:
         return [cls.TEAM_ID, cls.POSSESSION_PCT, cls.TOTAL_FRAMES]
+class PassValidation(TypedDict):
+    same_team: bool
+    distance_valid: bool
+    speed_valid: bool
+
 class PassRecord(TypedDict):
-    passer_id: int
-    receiver_id: int
+    pass_id: int
+    event_type: str
+    passer_id: int | None
+    receiver_id: int | None
+    passer_team: str | None
+    receiver_team: str | None
+    successful: bool
+    intercepted: bool
     start_frame: int
     end_frame: int
+    duration_frames: int
+    distance_m: float
+    ball_speed_kmh: float
+    pass_type: str
+    start_xy: list[float]
+    end_xy: list[float]
+    timestamp: float
+    validation: PassValidation
 class FrameObject(TypedDict):
     id: str | int
     team: str
