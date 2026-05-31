@@ -51,7 +51,7 @@ _PIPELINE_SLIDES = [
 _TEAM_MEMBERS = [
     ("tse-coder", "Core contributor"),
     ("BytePhilosopher", "Core contributor"),
-    ("yoseph404", "Core contributor"),
+    ("yobernu", "Core contributor"),
     ("halafiCodes", "Core contributor"),
     ("abeladamushumet", "Core contributor"),
 ]
