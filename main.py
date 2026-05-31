@@ -120,6 +120,15 @@ def main(args, progress_callback=None):
     )
     camera_motion   = CameraMotionEstimator(initial_frame)
     data_exporter   = DataExporter(output_dir=str(game_output_dir))
+    match_info = {
+        "match_id": getattr(args, "match_id", "match_001") or "match_001",
+        "home_team": getattr(args, "home_team", "Home Team") or "Home Team",
+        "away_team": getattr(args, "away_team", "Away Team") or "Away Team",
+        "match_start_ms": 0,
+        "period": 1,
+        "team_id_map": {0: "home", 1: "away"}
+    }
+    data_exporter.set_match_info(match_info)
     heatmap_analyzer = HeatmapAnalyzer(
         pitch_width=CONFIG.get('pitch.width_m', 105),
         pitch_height=CONFIG.get('pitch.height_m', 68)
@@ -310,5 +319,8 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--model_path", type=str, default=MODEL_PATH)
     parser.add_argument("--game_id", type=str, default=None, help="Game ID for game-specific folder organization")
+    parser.add_argument("--match-id", type=str, default="match_001", help="Identifier for the match")
+    parser.add_argument("--home-team", type=str, default="Home Team", help="Home team name")
+    parser.add_argument("--away-team", type=str, default="Away Team", help="Away team name")
     args = parser.parse_args()
     main(args)
