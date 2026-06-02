@@ -13,6 +13,7 @@ class DataExporter:
         from .output_schema import OutputFiles, AnalyticsCSVColumns
         self.csv_path = self.output_dir / OutputFiles.ANALYTICS
         self.json_path = self.output_dir / OutputFiles.ANALYTICS_JSON
+        self.events_path = self.output_dir / "events.json"
         self.frame_data = []
         self.match_info = {}
         self.events = []
@@ -175,11 +176,13 @@ class DataExporter:
                 "ball": ball,
             })
         events_array = self.events
-        # Always write events.json to the project-level data/ folder.
-        _DATA_DIR.mkdir(parents=True, exist_ok=True)
-        events_path = _DATA_DIR / "events.json"
+        # Primary location: alongside analytics.json in the run output folder.
+        events_path = self.events_path
         from .output_schema import write_json_atomic
         write_json_atomic(events_path, convert_numpy(events_array))
+        # Backward-compatible mirror for legacy tooling expecting data/events.json.
+        _DATA_DIR.mkdir(parents=True, exist_ok=True)
+        write_json_atomic(_DATA_DIR / "events.json", convert_numpy(events_array))
         
         total_passes = sum(1 for e in self.events if e.get("event_type") == "PASS_COMPLETED")
         final_data = {
