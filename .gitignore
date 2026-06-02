@@ -1,42 +1,68 @@
-# Python
+# ─── Python ───────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-.pytest_cache/
-.mypy_cache/
+*.egg-info/
+dist/
+build/
+.eggs/
 
-# Virtual environments
+# ─── Virtual environments ─────────────────────────────────────────────────────
 .venv/
 venv/
+venv311/
 env/
+ENV/
 
-# OS/editor
+# ─── Testing & type-checking ──────────────────────────────────────────────────
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ─── Editor & OS ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
 .DS_Store
 Thumbs.db
-.vscode/
+desktop.ini
 
-# Large model artifacts
+# ─── ML model artifacts ───────────────────────────────────────────────────────
 *.pt
 *.onnx
 *.engine
+*.pkl
+*.h5
 
-# Runtime data and outputs
+# ─── Runtime data & outputs ───────────────────────────────────────────────────
 data/
 results/
 test_results/
+logs/
+
+# ─── Video files ──────────────────────────────────────────────────────────────
 *.mp4
 *.avi
 *.mov
 *.mkv
 *.webm
 
-# Notebook checkpoints
+# ─── Notebook checkpoints ─────────────────────────────────────────────────────
 .ipynb_checkpoints/
+*.ipynb
 
-# Observability logs
-logs/
+# ─── Docker & secrets ─────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ─── Scratch / local-only docs ────────────────────────────────────────────────
 HOMOGRAPHY.md
 OBSERVABILITY.md
 new.md
-.gitignore

@@ -1,6 +1,11 @@
 from dataclasses import dataclass, field, asdict
-from typing import TypedDict, NotRequired, Literal, List, Dict, Any, Optional
-from enum import StrEnum
+import sys
+from typing import TypedDict, Literal, List, Dict, Any, Optional
+
+if sys.version_info >= (3, 11):
+    from typing import NotRequired
+else:
+    from typing_extensions import NotRequired
 from pathlib import Path
 import json
 import csv
