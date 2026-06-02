@@ -4,9 +4,12 @@ src/pipeline/events.py
 EventsDetector – frame-level event detection for football tracking.
 
 Detects the following event types:
-  • pass        – ball transferred from one player to another
-  • skill_move  – player performs a rapid direction-change with the ball
-  • cross        – high-speed ball trajectory from a wide position toward the box
+  • pass        – pass completed to a teammate or intercepted by opponent
+  • skill_move  – player performs a confirmed direction-change with the ball
+  • cross       – confirmed high-speed ball trajectory from a wide position
+                  toward the box
+
+Attempt events (e.g. PASS_ATTEMPT) where the outcome is unknown are **not** emitted.
 
 All events are reported by calling ``data_exporter.add_event(event_dict)``
 rather than being written to disk directly.
@@ -17,6 +20,7 @@ Event dict schema
     "type":         str,           # "pass" | "skill_move" | "cross"
     "frame":        int,           # frame index where event was detected
     "timestamp_ms": int,           # millisecond timestamp (frame / fps * 1000)
+    "game_clock":   str,           # formatted game clock e.g. "01:23"
 
     # -- pass only --
     "passer_id":    int | None,
@@ -44,6 +48,8 @@ from __future__ import annotations
 import math
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING
+
+from src.utils.integration_helpers import format_game_clock
 
 if TYPE_CHECKING:
     from .data_exporter import DataExporter
@@ -262,32 +268,8 @@ class EventsDetector:
                     self._pass_start_frame = self._last_possession_frame
                     self._pass_start_xy = (bx, by)
                     self._pass_duration_frames = 0
-                    
-                    attempt_event = {
-                        "type": "pass",
-                        "event_type": "PASS_ATTEMPT",
-                        "pass_id": self._pass_id_counter,
-                        "frame": frame_idx,
-                        "timestamp_ms": timestamp_ms,
-                        "passer_id": self._possessor_id,
-                        "passer_team": self._possessor_team,
-                        "receiver_id": None,
-                        "receiver_team": None,
-                        "ball_speed_kmh": round(float(ball_speed_kmh), 2),
-                        "start_xy": [round(self._pass_start_xy[0], 2), round(self._pass_start_xy[1], 2)],
-                        "end_xy": [0.0, 0.0],
-                        "successful": False,
-                        "intercepted": False,
-                        "distance_m": 0.0,
-                        "duration_frames": 0,
-                        "pass_type": "standard",
-                        "validation": {
-                            "same_team": False,
-                            "distance_valid": False,
-                            "speed_valid": False
-                        }
-                    }
-                    data_exporter.add_event(attempt_event)
+                    # No PASS_ATTEMPT event is emitted; we wait for the
+                    # outcome (completion or interception) before reporting.
                 else:
                     self._state = "LOOSE_BALL"
                     self._possessor_id = None
@@ -306,21 +288,21 @@ class EventsDetector:
                     same_team = (receiver_team == self._possessor_team and receiver_team is not None)
                     
                     dist_m = math.hypot(bx - self._pass_start_xy[0], by - self._pass_start_xy[1])
-                    pass_type = "standard"
                     if dist_m > 25.0:
                         pass_type = "long_ball"
                     
                     dist_valid = dist_m > 2.0
                     speed_valid = ball_speed_kmh < 150.0
-                    
-                    event_type = "PASS_COMPLETED" if same_team else "PASS_INTERCEPTED"
-                    
+
+                    elapsed_seconds = frame_idx / self.fps
+                    game_clock = format_game_clock(elapsed_seconds)
+
                     completed_event = {
                         "type": "pass",
-                        "event_type": event_type,
                         "pass_id": self._pass_id_counter,
                         "frame": frame_idx,
                         "timestamp_ms": timestamp_ms,
+                        "game_clock": game_clock,
                         "passer_id": self._possessor_id,
                         "passer_team": self._possessor_team,
                         "receiver_id": receiver_id,
@@ -329,10 +311,8 @@ class EventsDetector:
                         "start_xy": [round(self._pass_start_xy[0], 2), round(self._pass_start_xy[1], 2)],
                         "end_xy": [round(bx, 2), round(by, 2)],
                         "successful": same_team,
-                        "intercepted": not same_team,
                         "distance_m": round(dist_m, 2),
                         "duration_frames": self._pass_duration_frames,
-                        "pass_type": pass_type,
                         "validation": {
                             "same_team": same_team,
                             "distance_valid": dist_valid,
@@ -425,10 +405,14 @@ class EventsDetector:
         angle_deg = math.degrees(math.acos(cos_angle))
 
         if angle_deg >= _SKILL_MIN_DIRECTION_CHANGE_DEG:
+            elapsed_seconds = frame_idx / self.fps
+            game_clock = format_game_clock(elapsed_seconds)
+
             event = {
                 "type": "skill_move",
                 "frame": frame_idx,
                 "timestamp_ms": timestamp_ms,
+                "game_clock": game_clock,
                 "player_id": closest_id,
                 "team": player_teams.get(closest_id),
                 "direction_change_deg": round(angle_deg, 1),
@@ -514,10 +498,14 @@ class EventsDetector:
                 player_id = closest_id
                 team = player_teams.get(closest_id)
 
+        elapsed_seconds = frame_idx / self.fps
+        game_clock = format_game_clock(elapsed_seconds)
+
         event = {
             "type": "cross",
             "frame": frame_idx,
             "timestamp_ms": timestamp_ms,
+            "game_clock": game_clock,
             "player_id": player_id,
             "team": team,
             "origin_x_m": round(bx, 2),

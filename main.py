@@ -297,12 +297,16 @@ def main(args, progress_callback=None):
                 speed, dist, (x_m, y_m) = speed_estimator.get_stats(t_id)
                 heatmap_analyzer.add_point(t_id, tid, x_m, y_m)
                 player_positions[t_id] = (x_m, y_m)
+                dist_to_ball = ((x_m - ball_pos_m[0])**2 + (y_m - ball_pos_m[1])**2)**0.5
+                possession = dist_to_ball < CONFIG.get("possession.max_distance_m", 2.0)
+
                 frame_objs.append({
                     "id":       t_id,
                     "class":    "referee" if tid == -2 else "player",
                     "team":     "Referee" if tid == -2 else (f"Team {tid}" if tid >= 0 else "Unknown"),
                     "x_m":      x_m,   "y_m":      y_m,
                     "speed":    speed,  "distance": dist,
+                    "possession": possession,
                 })
             elif class_id == 32:
                 frame_objs.append({
