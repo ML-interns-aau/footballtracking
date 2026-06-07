@@ -87,7 +87,17 @@ football_tracking_project/
 │       ├── visualizer.py        # Frame annotation
 │       └── tracking_csv_builder.py
 ├── main.py                      # Pipeline entry point (CLI + library)
-├── post_process_results.py      # Insight CSV generation
+├── scripts/                     # Setup & operational scripts (see docs/REPO_REORG.md)
+│   ├── install_deps.py          # Dependency installer
+│   ├── download_model.py        # Fetch YOLO weights
+│   ├── post_process_results.py  # Insight CSV generation
+│   └── calibrate.py             # Camera calibration helper
+├── tools/                       # Developer utilities & synthetic data
+│   ├── generate_test_data.py
+│   ├── generate_and_export_200f.py
+│   ├── build_tracking_csv.py
+│   ├── annotate_from_frames.py
+│   └── smoke_run.py
 ├── models/
 │   └── best.pt                  # YOLO weights (not tracked in git)
 ├── data/

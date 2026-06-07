@@ -15,7 +15,7 @@ class ModelNotFoundError(ConfigurationError):
             f"Model weights not found: {path}",
             hint=(
                 "Place yolov8m_fixed.pt in the models/ directory. "
-                "Run `python download_model.py` to download it automatically."
+                "Run `python scripts/download_model.py` to download it automatically."
             ),
         )
         self.path = path
