@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 import pandas as pd
 from pathlib import Path
-from src.pipeline.output_schema import (
+from src.exporters.output_schema import (
     OutputFiles,
     PlayerSummaryCSVColumns,
     write_csv_headers,

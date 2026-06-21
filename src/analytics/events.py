@@ -52,7 +52,7 @@ from typing import TYPE_CHECKING
 from src.utils.integration_helpers import format_game_clock
 
 if TYPE_CHECKING:
-    from .data_exporter import DataExporter
+    from src.exporters.data_exporter import DataExporter
 
 
 # ---------------------------------------------------------------------------

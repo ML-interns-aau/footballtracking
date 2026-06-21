@@ -5,16 +5,16 @@ import sys
 from pathlib import Path
 from tqdm import tqdm
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from src.pipeline.detector import FootballDetector
-from src.pipeline.tracker import FootballTracker
-from src.pipeline.team_classifier import TeamClassifier
-from src.pipeline.camera_motion import CameraMotionEstimator
+from src.engine.detector import FootballDetector
+from src.engine.tracker import FootballTracker
+from src.engine.team_classifier import TeamClassifier
+from src.analytics.camera_motion import CameraMotionEstimator
 from src.homography.pitch_mapping import PitchMapping
-from src.pipeline.speed_estimator import SpeedEstimator
-from src.pipeline.ball_tracker import BallTracker
-from src.pipeline.heatmap_analyzer import HeatmapAnalyzer
-from src.pipeline.visualizer import PipelineVisualizer
-from src.pipeline.tracking_csv_builder import TrackingCSVBuilder
+from src.analytics.speed_estimator import SpeedEstimator
+from src.engine.ball_tracker import BallTracker
+from src.analytics.heatmap_analyzer import HeatmapAnalyzer
+from src.visualization.visualizer import PipelineVisualizer
+from src.exporters.tracking_csv_builder import TrackingCSVBuilder
 def main(args):
     frames_dir  = Path("data/frames")
     output_dir  = Path("results")
