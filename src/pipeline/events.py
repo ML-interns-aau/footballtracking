@@ -4,10 +4,13 @@ src/pipeline/events.py
 EventsDetector – frame-level event detection for football tracking.
 
 Detects the following event types:
-  • pass        – pass completed to a teammate or intercepted by opponent
-  • skill_move  – player performs a confirmed direction-change with the ball
-  • cross       – confirmed high-speed ball trajectory from a wide position
-                  toward the box
+  • pass           – pass completed to a teammate
+  • interception   – pass that ends in an opponent gaining the ball
+  • recovery       – player gains possession from a loose-ball state
+  • switch_of_play – successful pass with a large lateral (y-axis) change
+  • skill_move     – player performs a confirmed direction-change with the ball
+  • cross          – confirmed high-speed ball trajectory from a wide position
+                     toward the box
 
 Attempt events (e.g. PASS_ATTEMPT) where the outcome is unknown are **not** emitted.
 
@@ -17,7 +20,8 @@ rather than being written to disk directly.
 Event dict schema
 -----------------
 {
-    "type":         str,           # "pass" | "skill_move" | "cross"
+    "type":         str,           # "pass" | "interception" | "recovery"
+                                   #   | "switch_of_play" | "skill_move" | "cross"
     "frame":        int,           # frame index where event was detected
     "timestamp_ms": int,           # millisecond timestamp (frame / fps * 1000)
     "game_clock":   str,           # formatted game clock e.g. "01:23"
@@ -28,6 +32,21 @@ Event dict schema
     "passer_team":  str | None,    # e.g. "Team 0"
     "receiver_team":str | None,
     "ball_speed_kmh": float,
+
+    # -- interception only --
+    "interceptor_id":   int | None,
+    "interceptor_team": str | None,
+    # passer_id / passer_team identify the player who lost the ball
+
+    # -- recovery only --
+    "player_id":    int | None,    # player who recovered the loose ball
+    "team":         str | None,
+    "recovery_xy":  list[float],
+    "lost_by_id":   int | None,    # previous possessor, if any
+
+    # -- switch_of_play only --
+    # passer/receiver as in pass, plus:
+    "lateral_change_m": float,     # |Δy| in metres across the pass
 
     # -- skill_move only --
     "player_id":    int | None,
@@ -65,6 +84,9 @@ _PASS_MIN_POSSESSION_FRAMES: int = 2         # frames of contact needed to confi
 _PASS_MIN_LOOSE_FRAMES: int = 8             # frames the ball must be free before a pass is logged
 _PASS_MIN_BALL_SPEED_KMH: float = 5.0       # minimum ball speed to even consider a pass
 _PASS_HIGH_SPEED_RELEASE_KMH: float = 15.0  # immediate possession-loss if ball this fast
+
+# --- Switch of play ---
+_SWITCH_OF_PLAY_MIN_DY_M: float = 35.0      # min lateral (y-axis) change for a completed pass to count as a switch
 
 # --- Skill move ---
 _SKILL_MIN_POSSESSION_FRAMES: int = 6        # player must be near ball for at least N frames
@@ -250,6 +272,9 @@ class EventsDetector:
                 self._state = "CONTROLLED"
                 self._possessor_id = self._candidate_id
                 self._possessor_team = self._candidate_team
+                self._emit_recovery(
+                    frame_idx, timestamp_ms, bx, by, data_exporter,
+                )
                 self._last_possessor_id = self._possessor_id
                 self._last_possessor_team = self._possessor_team
                 self._last_possession_frame = frame_idx
@@ -286,42 +311,60 @@ class EventsDetector:
                     receiver_id = closest_id
                     receiver_team = player_teams.get(receiver_id)
                     same_team = (receiver_team == self._possessor_team and receiver_team is not None)
-                    
+
                     dist_m = math.hypot(bx - self._pass_start_xy[0], by - self._pass_start_xy[1])
-                    if dist_m > 25.0:
-                        pass_type = "long_ball"
-                    
+                    dy_m = abs(by - self._pass_start_xy[1])
                     dist_valid = dist_m > 2.0
                     speed_valid = ball_speed_kmh < 150.0
 
                     elapsed_seconds = frame_idx / self.fps
                     game_clock = format_game_clock(elapsed_seconds)
 
-                    completed_event = {
-                        "type": "pass",
-                        "pass_id": self._pass_id_counter,
-                        "frame": frame_idx,
-                        "timestamp_ms": timestamp_ms,
-                        "game_clock": game_clock,
-                        "passer_id": self._possessor_id,
-                        "passer_team": self._possessor_team,
-                        "receiver_id": receiver_id,
-                        "receiver_team": receiver_team,
-                        "ball_speed_kmh": round(float(ball_speed_kmh), 2),
-                        "start_xy": [round(self._pass_start_xy[0], 2), round(self._pass_start_xy[1], 2)],
-                        "end_xy": [round(bx, 2), round(by, 2)],
-                        "successful": same_team,
-                        "distance_m": round(dist_m, 2),
-                        "duration_frames": self._pass_duration_frames,
-                        "validation": {
-                            "same_team": same_team,
-                            "distance_valid": dist_valid,
-                            "speed_valid": speed_valid
+                    if same_team:
+                        pass_id = self._pass_id_counter
+                        completed_event = {
+                            "type": "pass",
+                            "pass_id": pass_id,
+                            "frame": frame_idx,
+                            "timestamp_ms": timestamp_ms,
+                            "game_clock": game_clock,
+                            "passer_id": self._possessor_id,
+                            "passer_team": self._possessor_team,
+                            "receiver_id": receiver_id,
+                            "receiver_team": receiver_team,
+                            "ball_speed_kmh": round(float(ball_speed_kmh), 2),
+                            "start_xy": [round(self._pass_start_xy[0], 2), round(self._pass_start_xy[1], 2)],
+                            "end_xy": [round(bx, 2), round(by, 2)],
+                            "successful": same_team,
+                            "distance_m": round(dist_m, 2),
+                            "duration_frames": self._pass_duration_frames,
+                            "validation": {
+                                "same_team": same_team,
+                                "distance_valid": dist_valid,
+                                "speed_valid": speed_valid
+                            }
                         }
-                    }
-                    data_exporter.add_event(completed_event)
-                    self._pass_id_counter += 1
-                    
+                        data_exporter.add_event(completed_event)
+
+                        # A successful pass with a large lateral (y-axis) change
+                        # is also reported as a switch of play.
+                        if dy_m > _SWITCH_OF_PLAY_MIN_DY_M:
+                            self._emit_switch_of_play(
+                                frame_idx, timestamp_ms, bx, by, pass_id,
+                                receiver_id, receiver_team, ball_speed_kmh,
+                                dist_m, dy_m, game_clock, data_exporter,
+                            )
+
+                        self._pass_id_counter += 1
+                    else:
+                        # Opponent gained the ball – this is an interception,
+                        # not a completed pass, so it gets its own event type.
+                        self._emit_interception(
+                            frame_idx, timestamp_ms, bx, by,
+                            receiver_id, receiver_team, ball_speed_kmh,
+                            dist_m, game_clock, data_exporter,
+                        )
+
                     self._state = "CONTROLLED"
                     self._possessor_id = receiver_id
                     self._possessor_team = receiver_team
@@ -333,6 +376,101 @@ class EventsDetector:
                 self._state = "LOOSE_BALL"
                 self._possessor_id = None
                 self._possessor_team = None
+
+    def _emit_interception(
+        self,
+        frame_idx: int,
+        timestamp_ms: int,
+        bx: float,
+        by: float,
+        interceptor_id: int,
+        interceptor_team: str | None,
+        ball_speed_kmh: float,
+        dist_m: float,
+        game_clock: str,
+        data_exporter: "DataExporter",
+    ) -> None:
+        """Emit an ``interception`` event when an opponent gains the ball
+        during a pass.  ``self._possessor_id`` still holds the passer who lost
+        possession (state is reassigned by the caller afterwards)."""
+        event = {
+            "type": "interception",
+            "frame": frame_idx,
+            "timestamp_ms": timestamp_ms,
+            "game_clock": game_clock,
+            "interceptor_id": interceptor_id,
+            "interceptor_team": interceptor_team,
+            "passer_id": self._possessor_id,
+            "passer_team": self._possessor_team,
+            "ball_speed_kmh": round(float(ball_speed_kmh), 2),
+            "start_xy": [round(self._pass_start_xy[0], 2), round(self._pass_start_xy[1], 2)],
+            "end_xy": [round(bx, 2), round(by, 2)],
+            "distance_m": round(dist_m, 2),
+            "duration_frames": self._pass_duration_frames,
+        }
+        data_exporter.add_event(event)
+
+    def _emit_recovery(
+        self,
+        frame_idx: int,
+        timestamp_ms: int,
+        bx: float,
+        by: float,
+        data_exporter: "DataExporter",
+    ) -> None:
+        """Emit a ``recovery`` event when a player gains possession out of a
+        loose-ball state.  Called from the LOOSE_BALL → CONTROLLED transition,
+        where ``self._possessor_id``/``_team`` are the newly-in-possession
+        player set just before this call."""
+        elapsed_seconds = frame_idx / self.fps
+        game_clock = format_game_clock(elapsed_seconds)
+        event = {
+            "type": "recovery",
+            "frame": frame_idx,
+            "timestamp_ms": timestamp_ms,
+            "game_clock": game_clock,
+            "player_id": self._possessor_id,
+            "team": self._possessor_team,
+            "recovery_xy": [round(bx, 2), round(by, 2)],
+            "lost_by_id": self._last_possessor_id,
+            "lost_by_team": self._last_possessor_team,
+        }
+        data_exporter.add_event(event)
+
+    def _emit_switch_of_play(
+        self,
+        frame_idx: int,
+        timestamp_ms: int,
+        bx: float,
+        by: float,
+        pass_id: int,
+        receiver_id: int,
+        receiver_team: str | None,
+        ball_speed_kmh: float,
+        dist_m: float,
+        dy_m: float,
+        game_clock: str,
+        data_exporter: "DataExporter",
+    ) -> None:
+        """Emit a ``switch_of_play`` event for a completed pass whose lateral
+        (y-axis) displacement exceeds ``_SWITCH_OF_PLAY_MIN_DY_M``."""
+        event = {
+            "type": "switch_of_play",
+            "pass_id": pass_id,
+            "frame": frame_idx,
+            "timestamp_ms": timestamp_ms,
+            "game_clock": game_clock,
+            "passer_id": self._possessor_id,
+            "passer_team": self._possessor_team,
+            "receiver_id": receiver_id,
+            "receiver_team": receiver_team,
+            "ball_speed_kmh": round(float(ball_speed_kmh), 2),
+            "start_xy": [round(self._pass_start_xy[0], 2), round(self._pass_start_xy[1], 2)],
+            "end_xy": [round(bx, 2), round(by, 2)],
+            "distance_m": round(dist_m, 2),
+            "lateral_change_m": round(dy_m, 2),
+        }
+        data_exporter.add_event(event)
 
     # ---------------------------------------------------------------------- #
     # Skill-move detection                                                    #
