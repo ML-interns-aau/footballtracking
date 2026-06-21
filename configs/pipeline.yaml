@@ -45,6 +45,18 @@ team_classification:
 pitch:
   width_m: 105.0              # Pitch width in meters
   height_m: 68.0              # Pitch height in meters
+
+# =============================================================================
+# SPATIAL ZONE DETECTION
+# =============================================================================
+zones:
+  penalty_area:
+    depth_m: 16.5              # Depth from goal line (FIFA standard)
+    width_m: 40.3              # Width centred on goal (FIFA standard)
+    cooldown_frames: 50        # Suppress re-fire per player (~3.3s at 15fps)
+  final_third:
+    depth_m: 35.0              # 105 / 3 = attacking third boundary
+    cooldown_frames: 50        # Suppress re-fire per player (~3.3s at 15fps)
   
 # =============================================================================
 # VIDEO PROCESSING
