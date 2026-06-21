@@ -4,13 +4,15 @@ src/pipeline/events.py
 EventsDetector – frame-level event detection for football tracking.
 
 Detects the following event types:
-  • pass           – pass completed to a teammate
-  • interception   – pass that ends in an opponent gaining the ball
-  • recovery       – player gains possession from a loose-ball state
-  • switch_of_play – successful pass with a large lateral (y-axis) change
-  • skill_move     – player performs a confirmed direction-change with the ball
-  • cross          – confirmed high-speed ball trajectory from a wide position
-                     toward the box
+  • pass                – pass completed to a teammate
+  • interception        – pass that ends in an opponent gaining the ball
+  • recovery            – player gains possession from a loose-ball state
+  • switch_of_play      – successful pass with a large lateral (y-axis) change
+  • skill_move          – player performs a confirmed direction-change with the ball
+  • cross               – confirmed high-speed ball trajectory from a wide position
+                          toward the box
+  • penalty_area_entry  – player in possession enters either penalty area
+  • final_third_entry   – player in possession enters either attacking third
 
 Attempt events (e.g. PASS_ATTEMPT) where the outcome is unknown are **not** emitted.
 
@@ -22,6 +24,7 @@ Event dict schema
 {
     "type":         str,           # "pass" | "interception" | "recovery"
                                    #   | "switch_of_play" | "skill_move" | "cross"
+                                   #   | "penalty_area_entry" | "final_third_entry"
     "frame":        int,           # frame index where event was detected
     "timestamp_ms": int,           # millisecond timestamp (frame / fps * 1000)
     "game_clock":   str,           # formatted game clock e.g. "01:23"
@@ -59,6 +62,11 @@ Event dict schema
     "origin_x_m":  float,          # pitch-space origin
     "origin_y_m":  float,
     "ball_speed_kmh": float,
+
+    # -- penalty_area_entry / final_third_entry --
+    "player_id":   int | None,
+    "team":        str | None,
+    "entry_xy":    list[float],    # pitch-space position at zone entry
 }
 """
 
@@ -99,6 +107,15 @@ _CROSS_WIDE_X_FRACTION: float = 0.20        # within 20 % of pitch width from to
 _CROSS_MIN_BALL_SPEED_KMH: float = 30.0     # fast kicks only
 _CROSS_MIN_INWARD_Y_M: float = 6.0          # ball must be heading toward the box (|Δy| > threshold)
 _CROSS_COOLDOWN_FRAMES: int = 40            # minimum frames between consecutive cross detections
+
+# --- Penalty area entry ---
+_PENALTY_AREA_DEPTH_M: float = 16.5         # FIFA standard penalty area depth from goal line
+_PENALTY_AREA_WIDTH_M: float = 40.3         # FIFA standard penalty area width, centred on goal
+_PENALTY_AREA_COOLDOWN_FRAMES: int = 50     # suppress re-fire per player
+
+# --- Final third entry ---
+_FINAL_THIRD_DEPTH_M: float = 35.0          # 105 / 3 — the final third of the pitch
+_FINAL_THIRD_COOLDOWN_FRAMES: int = 50      # suppress re-fire per player
 
 
 class EventsDetector:
@@ -154,6 +171,20 @@ class EventsDetector:
         # Cross state                                                          #
         # ------------------------------------------------------------------ #
         self._cross_last_frame: int = -_CROSS_COOLDOWN_FRAMES  # last detected cross frame
+
+        # ------------------------------------------------------------------ #
+        # Spatial-zone entry state                                             #
+        # ------------------------------------------------------------------ #
+        # Per-player cooldown: zone_name -> {player_id -> last_event_frame}
+        self._zone_cooldowns: dict[str, dict[int, int]] = {
+            "penalty_area": {},
+            "final_third": {},
+        }
+        # Players inside each zone on the *previous* frame (for edge detection)
+        self._prev_in_zone: dict[str, set[int]] = {
+            "penalty_area": set(),
+            "final_third": set(),
+        }
 
         # ------------------------------------------------------------------ #
         # Ball trail (last N pitch-space positions)                           #
@@ -216,6 +247,10 @@ class EventsDetector:
         self._detect_cross(
             frame_idx, timestamp_ms, bx, by,
             player_positions, player_teams, ball_speed_kmh, data_exporter,
+        )
+        self._detect_zone_entries(
+            frame_idx, timestamp_ms,
+            player_positions, player_teams, data_exporter,
         )
 
     # ---------------------------------------------------------------------- #
@@ -659,6 +694,132 @@ class EventsDetector:
         }
         data_exporter.add_event(event)
         self._cross_last_frame = frame_idx
+
+    # ---------------------------------------------------------------------- #
+    # Spatial-zone entry detection                                            #
+    # ---------------------------------------------------------------------- #
+
+    def _point_in_penalty_area(self, x_m: float, y_m: float) -> bool:
+        """Return True if ``(x_m, y_m)`` is inside either penalty area.
+
+        Uses FIFA-standard dimensions: 16.5 m deep × 40.3 m wide, centred
+        on the goal at each end of the pitch.
+        """
+        y_centre = self.pitch_height_m / 2.0
+        half_w = _PENALTY_AREA_WIDTH_M / 2.0
+        in_y_band = (y_centre - half_w) <= y_m <= (y_centre + half_w)
+        in_left_box = x_m <= _PENALTY_AREA_DEPTH_M
+        in_right_box = x_m >= (self.pitch_width_m - _PENALTY_AREA_DEPTH_M)
+        return in_y_band and (in_left_box or in_right_box)
+
+    def _point_in_final_third(self, x_m: float, y_m: float) -> bool:
+        """Return True if ``(x_m, y_m)`` is in either final third of the pitch.
+
+        The final third extends ``_FINAL_THIRD_DEPTH_M`` from each goal line.
+        """
+        return x_m <= _FINAL_THIRD_DEPTH_M or x_m >= (self.pitch_width_m - _FINAL_THIRD_DEPTH_M)
+
+    def _detect_zone_entries(
+        self,
+        frame_idx: int,
+        timestamp_ms: int,
+        player_positions: dict[int, tuple[float, float]],
+        player_teams: dict[int, str],
+        data_exporter: "DataExporter",
+    ) -> None:
+        """Detect when the player in possession enters a penalty area or the
+        final third.  Events fire only on the *transition* from outside →
+        inside (edge-triggered) and respect a per-player cooldown to prevent
+        jitter near zone boundaries."""
+
+        # Only act when a player is in confirmed possession
+        possessor_id = self._possessor_id
+        if possessor_id is None or self._state != "CONTROLLED":
+            # Update prev-zone sets to empty so re-entering after losing
+            # possession still counts as a fresh entry.
+            self._prev_in_zone["penalty_area"].clear()
+            self._prev_in_zone["final_third"].clear()
+            return
+
+        pos = player_positions.get(possessor_id)
+        if pos is None:
+            return
+
+        px, py = float(pos[0]), float(pos[1])
+        team = player_teams.get(possessor_id)
+
+        # --- Penalty area entry ---
+        in_pa_now = self._point_in_penalty_area(px, py)
+        was_in_pa = possessor_id in self._prev_in_zone["penalty_area"]
+
+        if in_pa_now and not was_in_pa:
+            last_fire = self._zone_cooldowns["penalty_area"].get(
+                possessor_id, -_PENALTY_AREA_COOLDOWN_FRAMES
+            )
+            if frame_idx - last_fire >= _PENALTY_AREA_COOLDOWN_FRAMES:
+                elapsed_seconds = frame_idx / self.fps
+                game_clock = format_game_clock(elapsed_seconds)
+                event = {
+                    "type": "penalty_area_entry",
+                    "frame": frame_idx,
+                    "timestamp_ms": timestamp_ms,
+                    "game_clock": game_clock,
+                    "player_id": possessor_id,
+                    "team": team,
+                    "entry_xy": [round(px, 2), round(py, 2)],
+                    "passer_id": None,
+                    "receiver_id": None,
+                    "passer_team": None,
+                    "receiver_team": None,
+                    "ball_speed_kmh": None,
+                    "direction_change_deg": None,
+                    "origin_x_m": None,
+                    "origin_y_m": None,
+                }
+                data_exporter.add_event(event)
+                self._zone_cooldowns["penalty_area"][possessor_id] = frame_idx
+
+        # --- Final third entry ---
+        in_ft_now = self._point_in_final_third(px, py)
+        was_in_ft = possessor_id in self._prev_in_zone["final_third"]
+
+        if in_ft_now and not was_in_ft:
+            last_fire = self._zone_cooldowns["final_third"].get(
+                possessor_id, -_FINAL_THIRD_COOLDOWN_FRAMES
+            )
+            if frame_idx - last_fire >= _FINAL_THIRD_COOLDOWN_FRAMES:
+                elapsed_seconds = frame_idx / self.fps
+                game_clock = format_game_clock(elapsed_seconds)
+                event = {
+                    "type": "final_third_entry",
+                    "frame": frame_idx,
+                    "timestamp_ms": timestamp_ms,
+                    "game_clock": game_clock,
+                    "player_id": possessor_id,
+                    "team": team,
+                    "entry_xy": [round(px, 2), round(py, 2)],
+                    "passer_id": None,
+                    "receiver_id": None,
+                    "passer_team": None,
+                    "receiver_team": None,
+                    "ball_speed_kmh": None,
+                    "direction_change_deg": None,
+                    "origin_x_m": None,
+                    "origin_y_m": None,
+                }
+                data_exporter.add_event(event)
+                self._zone_cooldowns["final_third"][possessor_id] = frame_idx
+
+        # Update previous-frame zone membership for edge detection
+        if in_pa_now:
+            self._prev_in_zone["penalty_area"].add(possessor_id)
+        else:
+            self._prev_in_zone["penalty_area"].discard(possessor_id)
+
+        if in_ft_now:
+            self._prev_in_zone["final_third"].add(possessor_id)
+        else:
+            self._prev_in_zone["final_third"].discard(possessor_id)
 
     # ---------------------------------------------------------------------- #
     # Helpers                                                                 #
