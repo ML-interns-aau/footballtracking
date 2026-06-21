@@ -11,7 +11,7 @@ BG_CARD      = "#0d0d12"
 TEXT_PRIMARY  = "#f5f5f5"
 TEXT_MUTED    = "#6b6b78"
 
-NAV_PAGES = ["Home", "Upload", "Preprocess", "Analysis", "Results"]
+NAV_PAGES = ["Home", "Upload", "Preprocess", "Analysis", "Results", "AI Analyst"]
 
 
 def inject_custom_css():

@@ -15,7 +15,7 @@ if "page" not in st.session_state:
 _qp_page = st.query_params.get("page")
 if isinstance(_qp_page, list):
     _qp_page = _qp_page[0] if _qp_page else None
-if _qp_page in {"Home", "Upload", "Preprocess", "Analysis", "Results"}:
+if _qp_page in {"Home", "Upload", "Preprocess", "Analysis", "Results", "AI Analyst"}:
     st.session_state.page = _qp_page
 inject_custom_css()
 setup_sidebar()
@@ -33,6 +33,9 @@ elif current == "Analysis":
 elif current == "Results":
     from app.pages import results_page
     results_page.render()
+elif current == "AI Analyst":
+    from app.pages import ai_analyst_page
+    ai_analyst_page.render()
 else:
     home_page.render()
 render_site_footer()
