@@ -14,6 +14,10 @@ plotly>=5.20.0
 pyyaml>=6.0
 streamlit-image-coordinates>=0.1.8
 
+# Generative AI — Gemini match analyst
+google-genai>=1.0.0
+python-dotenv>=1.0.0
+
 # PyTorch — CPU build (works on all Python versions)
 # For GPU acceleration on Python 3.11 / 3.12 use:
 #   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
