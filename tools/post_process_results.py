@@ -23,7 +23,7 @@ import pandas as pd
 # Ensure project root is on sys.path so src.* imports resolve from tools/
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.pipeline.output_schema import (
+from src.exporters.output_schema import (
     AnalyticsCSVColumns,
     OutputFiles,
     PlayerSummaryCSVColumns,  # noqa: F401  (re-exported for callers)

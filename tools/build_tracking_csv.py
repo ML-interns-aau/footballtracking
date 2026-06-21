@@ -1,7 +1,7 @@
 import argparse, json, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from src.pipeline.tracking_csv_builder import TrackingCSVBuilder
+from src.exporters.tracking_csv_builder import TrackingCSVBuilder
 from src.homography.pitch_mapping import PitchMapping
 def main(args):
     input_path  = Path(args.input)

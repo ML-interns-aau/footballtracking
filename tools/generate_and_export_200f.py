@@ -20,7 +20,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.homography.pitch_mapping import PitchMapping
-from src.pipeline.tracking_csv_builder import TrackingCSVBuilder
+from src.exporters.tracking_csv_builder import TrackingCSVBuilder
 
 # ---------------------------------------------------------------------------
 # Synthetic objects: [team_id, player_id, x0, y0, vx, vy]

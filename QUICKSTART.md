@@ -4,80 +4,44 @@
 
 ### 1. Prerequisites
 
-Install these once:
-- [Docker Desktop](https://www.docker.com/products/docker-desktop) (includes Docker Compose)
-- [Git](https://git-scm.com/download/win)
-- (Optional) [VS Code](https://code.visualstudio.com/) with Python extension
+Ensure you have Python 3.10+ installed.
 
-### 2. Clone & Start
+### 2. Setup Environment
 
-```powershell
+```bash
 # Clone repository
 git clone <repo-url>
 cd footballtracking
 
-# Switch to feature branch
-git checkout feature/refactor-ui
+# Create and activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
 
-# Build and run (Windows)
-.\start.ps1 build
-.\start.ps1 run
-
-# Or using Docker directly:
-docker-compose build
-docker-compose up -d
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-**App will open at:** http://localhost:8501
+### 3. Running the Pipeline (Backend)
 
-### 3. Verify It Works
+To run the tracking and event detection pipeline on a video:
 
-1. Upload a video (go to Upload page)
-2. Check preprocessing settings
-3. Run analysis
-4. View results with tracking data
-
----
-
-## Daily Development Workflow
-
-| Task | Command |
-|------|---------|
-| Start working | `.\start.ps1 run` |
-| View logs | `.\start.ps1 logs` |
-| Stop for the day | `.\start.ps1 stop` |
-| Rebuild after code changes | `.\start.ps1 build` then `.\start.ps1 run` |
-| Full reset | `.\start.ps1 clean` |
-
----
-
-## Cross-Platform Commands
-
-| Platform | Build | Run | Stop |
-|----------|-------|-----|------|
-| **Windows (PowerShell)** | `.\start.ps1 build` | `.\start.ps1 run` | `.\start.ps1 stop` |
-| **Mac/Linux** | `make build` | `make run` | `make stop` |
-| **Any (Docker)** | `docker-compose build` | `docker-compose up -d` | `docker-compose down` |
-
----
-
-## Troubleshooting
-
-### "Docker not running"
-Start Docker Desktop first.
-
-### "Port 8501 already in use"
-Edit `docker-compose.yml`, change `8501:8501` to `8502:8501`, then access http://localhost:8502
-
-### "GPU not available"
-- Windows: Ensure WSL2 backend is enabled in Docker Desktop settings
-- Linux: Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
-- To run on CPU only: Remove the `deploy:` section from `docker-compose.yml`
-
-### "Permission denied on data folder" (Linux/Mac)
 ```bash
-sudo chown -R $USER:$USER ./data
+python main.py --input data/raw/video.mp4 --output_dir results/ --game_id game_001
 ```
+
+For quick testing, you can limit the number of frames to process:
+```bash
+python main.py --input data/raw/video.mp4 --output_dir results/ --max_frames 250
+```
+
+### 4. Running the Dashboard (Frontend)
+
+To start the Streamlit UI and view the analytics:
+
+```bash
+streamlit run app/Home.py
+```
+**App will open at:** http://localhost:8501
 
 ---
 
@@ -85,51 +49,23 @@ sudo chown -R $USER:$USER ./data
 
 ```
 footballtracking/
-├── app/                    # Streamlit UI code
+├── app/                    # Streamlit UI code (Frontend)
 │   ├── Home.py            # Entry point
-│   ├── pages/             # Page modules (upload, analysis, results)
-│   ├── config.py          # Paths & constants
-│   └── utils.py           # Shared UI utilities
-├── src/                   # Computer vision pipeline
-│   └── pipeline/          # Detection, tracking, etc.
-├── data/                  # Runtime data (gitignored, in Docker volume)
-│   ├── raw/               # Uploaded videos
-│   ├── processed/         # Preprocessed videos
-│   ├── insights/          # Analysis outputs (CSV, JSON)
-│   └── annotations/       # Generated annotations
-├── docker-compose.yml     # Docker orchestration
-├── Dockerfile             # Container definition
+│   ├── pages/             # Page modules
+│   └── config.py          # UI config
+├── src/                   # Computer vision & analytics (Backend)
+│   ├── engine/            # Detectors, trackers, and core computer vision
+│   ├── analytics/         # Events, heatmaps, and speed estimation
+│   ├── exporters/         # JSON/CSV formatting and outputs
+│   └── visualization/     # Frame annotation
+├── main.py                # Clean pipeline entry point
 └── requirements.txt       # Python dependencies
 ```
 
 ---
 
-## First Code Change?
+## Daily Development Workflow
 
-1. Edit files in `app/` or `src/`
-2. Run `.\start.ps1 build` to rebuild
-3. Run `.\start.ps1 run` to test
-4. Commit changes: `git add . && git commit -m "your message"`
-
----
-
-## IDE Setup (VS Code Recommended)
-
-Extensions:
-- Python
-- Docker
-- Pylance
-
-Settings for container development:
-```json
-{
-    "python.analysis.extraPaths": ["app", "src"],
-    "python.defaultInterpreterPath": "/usr/bin/python3"
-}
-```
-
----
-
-## Questions?
-
-Check `DOCKER.md` for detailed Docker docs.
+1. **Activate Environment:** `source .venv/bin/activate`
+2. **Run Pipeline:** `python main.py --input <path> --output_dir results`
+3. **Run UI:** `streamlit run app/Home.py`

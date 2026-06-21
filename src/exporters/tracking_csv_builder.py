@@ -3,7 +3,7 @@ import pandas as pd
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 from collections import defaultdict
-from src.pipeline.output_schema import (
+from src.exporters.output_schema import (
     TrackingCSVColumns,
     write_csv_headers,
 )
