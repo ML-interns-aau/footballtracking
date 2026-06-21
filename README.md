@@ -62,44 +62,21 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 
 ## Project Structure
 
-```
+```text
 football_tracking_project/
-├── dashboard/
-│   ├── Home.py                  # Streamlit entry point
+├── app/                         # Streamlit UI code (Frontend)
+│   ├── Home.py                  # Entry point
 │   ├── config.py                # Paths and defaults
 │   ├── utils.py                 # Shared UI components
-│   └── pages/
-│       ├── upload_page.py
-│       ├── preprocess_page.py
-│       ├── analysis_page.py     # Pipeline runner (background thread)
-│       └── results_page.py
-├── src/
-│   └── pipeline/
-│       ├── detector.py          # YOLOv8 wrapper (GPU-aware)
-│       ├── tracker.py           # ByteTrack wrapper
-│       ├── team_classifier.py   # HSV KMeans team split
-│       ├── ball_tracker.py      # Ball gap filling
-│       ├── camera_motion.py     # Optical-flow compensation
-│       ├── pitch_mapper.py      # Homography transform
-│       ├── speed_estimator.py   # Velocity + distance
-│       ├── data_exporter.py     # CSV / JSON writer
-│       ├── heatmap_analyzer.py  # Position heatmaps
-│       ├── visualizer.py        # Frame annotation
-│       └── tracking_csv_builder.py
-├── main.py                      # Pipeline entry point (CLI + library)
-├── scripts/                     # Setup & operational scripts (see docs/REPO_REORG.md)
-│   ├── install_deps.py          # Dependency installer
-│   ├── download_model.py        # Fetch YOLO weights
-│   ├── post_process_results.py  # Insight CSV generation
-│   └── calibrate.py             # Camera calibration helper
-├── tools/                       # Developer utilities & synthetic data
-│   ├── generate_test_data.py
-│   ├── generate_and_export_200f.py
-│   ├── build_tracking_csv.py
-│   ├── annotate_from_frames.py
-│   └── smoke_run.py
+│   └── pages/                   # Page modules (upload, analysis, results)
+├── src/                         # Computer vision & analytics (Backend)
+│   ├── engine/                  # Detectors, trackers, and core computer vision
+│   ├── analytics/               # Events, heatmaps, and speed estimation
+│   ├── exporters/               # JSON/CSV formatting and outputs
+│   └── visualization/           # Frame annotation
+├── main.py                      # Clean pipeline entry point
 ├── models/
-│   └── best.pt                  # YOLO weights (not tracked in git)
+│   └── yolov8m_fixed.pt         # YOLO weights
 ├── data/
 │   ├── raw/                     # Input videos
 │   ├── processed/               # Preprocessed videos
@@ -138,17 +115,7 @@ python main.py --input data/raw/match.mp4 --output_dir results --max_frames 0
 3. Set **Main file path** to `dashboard/Home.py`
 4. Add model weights via Streamlit Secrets or a download script
 
-### Docker
 
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-EXPOSE 8501
-CMD ["streamlit", "run", "dashboard/Home.py", "--server.port=8501", "--server.address=0.0.0.0"]
-```
 
 ---
 

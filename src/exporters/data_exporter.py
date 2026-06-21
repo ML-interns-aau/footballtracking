@@ -10,7 +10,7 @@ class DataExporter:
     def __init__(self, output_dir: str):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        from .output_schema import OutputFiles, AnalyticsCSVColumns
+        from src.exporters.output_schema import OutputFiles, AnalyticsCSVColumns
         self.csv_path = self.output_dir / OutputFiles.ANALYTICS
         self.json_path = self.output_dir / OutputFiles.ANALYTICS_JSON
         self.events_path = self.output_dir / "events.json"
@@ -178,7 +178,7 @@ class DataExporter:
         events_array = self.events
         # Primary location: alongside analytics.json in the run output folder.
         events_path = self.events_path
-        from .output_schema import write_json_atomic
+        from src.exporters.output_schema import write_json_atomic
         write_json_atomic(events_path, convert_numpy(events_array))
         # Backward-compatible mirror for legacy tooling expecting data/events.json.
         _DATA_DIR.mkdir(parents=True, exist_ok=True)

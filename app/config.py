@@ -65,7 +65,7 @@ def get_game_list():
     games.sort(key=lambda x: x.get("created", ""), reverse=True)
     return games
 def create_game_folder(video_name: str) -> str:
-    from src.pipeline.output_schema import OutputPathResolver
+    from src.exporters.output_schema import OutputPathResolver
     import json
     from datetime import datetime
     game_id = OutputPathResolver.generate_game_id(video_name)

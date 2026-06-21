@@ -48,7 +48,7 @@ def _layout(**overrides):
     return d
 
 
-from src.pipeline.output_schema import OutputFiles, AnalyticsCSVColumns, TrackingCSVColumns
+from src.exporters.output_schema import OutputFiles, AnalyticsCSVColumns, TrackingCSVColumns
 
 def _load_csv(name, game_id=None):
     """Load CSV file from game-specific folder or fallback locations."""

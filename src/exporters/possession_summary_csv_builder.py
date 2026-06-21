@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Dict, List
 import pandas as pd
 from pathlib import Path
-from src.pipeline.output_schema import (
+from src.exporters.output_schema import (
     OutputFiles,
     PossessionSummaryCSVColumns,
     write_csv_headers,
