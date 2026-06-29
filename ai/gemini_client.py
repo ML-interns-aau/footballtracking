@@ -1,48 +1,39 @@
-"""Thin wrapper around the google-genai SDK.
+"""Google Gemini provider (google-genai SDK).
 
-Centralises API-key resolution, model selection, and error translation so the
-rest of the application never touches the SDK directly.
+Implements the :class:`~ai.llm_provider.LLMProvider` contract: key resolution,
+model selection, token-usage reporting, and error translation, so the rest of
+the application never touches the SDK directly.
 """
 
 from __future__ import annotations
 
-import os
+from ai.llm_provider import (
+    LLMConfigError,
+    LLMError,
+    LLMProvider,
+    resolve_api_key,
+)
 
 DEFAULT_MODEL = "gemini-2.5-flash"
 API_KEY_ENV = "GEMINI_API_KEY"
 
 
-class GeminiConfigError(RuntimeError):
+# Backwards-compatible aliases. Existing call sites catch these names; keeping
+# them as subclasses of the shared errors means generic ``except LLMError``
+# handlers also catch Gemini failures.
+class GeminiConfigError(LLMConfigError):
     """Client could not be configured — missing key or missing dependency."""
 
 
-class GeminiError(RuntimeError):
+class GeminiError(LLMError):
     """A Gemini API call failed at request time."""
 
 
-_dotenv_loaded = False
-
-
-def _load_dotenv_once() -> None:
-    global _dotenv_loaded
-    if _dotenv_loaded:
-        return
-    _dotenv_loaded = True
-    try:
-        from dotenv import load_dotenv
-    except ImportError:
-        return
-    load_dotenv()
-
-
 def get_api_key() -> str:
-    _load_dotenv_once()
-    key = os.environ.get(API_KEY_ENV, "").strip()
-    if not key:
-        raise GeminiConfigError(
-            f"{API_KEY_ENV} is not set. Add it to your environment or a .env file."
-        )
-    return key
+    try:
+        return resolve_api_key(API_KEY_ENV)
+    except LLMConfigError as exc:
+        raise GeminiConfigError(str(exc)) from exc
 
 
 def _describe_api_error(exc: Exception) -> str:
@@ -61,17 +52,29 @@ def _describe_api_error(exc: Exception) -> str:
     return f"Gemini API error: {message}"
 
 
-class GeminiClient:
+def _usage_counts(response) -> tuple[int | None, int | None]:
+    usage = getattr(response, "usage_metadata", None)
+    if usage is None:
+        return None, None
+    in_tok = getattr(usage, "prompt_token_count", None)
+    out_tok = getattr(usage, "candidates_token_count", None)
+    return in_tok, out_tok
+
+
+class GeminiClient(LLMProvider):
     """Reusable Gemini client. Construct once and share across requests."""
 
+    name = "gemini"
+    label = "Google Gemini"
+
     def __init__(self, model: str = DEFAULT_MODEL, api_key: str | None = None):
+        super().__init__(model)
         try:
             from google import genai
         except ImportError as exc:
             raise GeminiConfigError(
                 "The google-genai package is not installed. Run: pip install google-genai"
             ) from exc
-        self.model = model
         try:
             self._client = genai.Client(api_key=api_key or get_api_key())
         except GeminiConfigError:
@@ -79,12 +82,9 @@ class GeminiClient:
         except Exception as exc:
             raise GeminiConfigError(f"Failed to initialize Gemini client: {exc}") from exc
 
-    def generate(
-        self,
-        prompt: str,
-        system_instruction: str | None = None,
-        temperature: float = 0.4,
-    ) -> str:
+    def _complete(
+        self, prompt: str, system_instruction: str | None, temperature: float
+    ) -> tuple[str, int | None, int | None]:
         from google.genai import types
 
         config = types.GenerateContentConfig(
@@ -100,7 +100,6 @@ class GeminiClient:
         except Exception as exc:
             raise GeminiError(_describe_api_error(exc)) from exc
 
-        text = (getattr(response, "text", None) or "").strip()
-        if not text:
-            raise GeminiError("Gemini returned an empty response.")
-        return text
+        text = getattr(response, "text", None) or ""
+        in_tok, out_tok = _usage_counts(response)
+        return text, in_tok, out_tok

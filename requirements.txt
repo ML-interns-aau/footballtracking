@@ -14,8 +14,9 @@ plotly>=5.20.0
 pyyaml>=6.0
 streamlit-image-coordinates>=0.1.8
 
-# Generative AI — Gemini match analyst
+# Generative AI — multi-provider match analyst (Gemini + Groq)
 google-genai>=1.0.0
+groq>=0.11.0
 python-dotenv>=1.0.0
 
 # PyTorch — CPU build (works on all Python versions)
