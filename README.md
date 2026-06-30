@@ -17,7 +17,7 @@ A Streamlit-based football analytics platform that turns raw match video into st
 | **Annotated Video** | Full output video with bounding boxes, trails, HUD |
 | **CSV / JSON Export** | Player summary, tracking data, pipeline summary |
 | **GPU Acceleration** | Automatic CUDA detection; falls back to CPU |
-| **AI Analyst (Gemini)** | Natural-language match reports + grounded Q&A chat — see [docs/AI_ANALYST.md](docs/AI_ANALYST.md) |
+| **AI Analyst (Gemini + Groq)** | Multi-provider natural-language match reports + grounded Q&A chat, with provider comparison — see [docs/AI_ANALYST.md](docs/AI_ANALYST.md) |
 
 ---
 
@@ -58,7 +58,7 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 1. **Upload** — drag-and-drop a match video (MP4, AVI, MOV, MKV) or select one from `data/raw/`
 2. **Analysis** — click **Run Full Pipeline**; a live progress bar tracks processing
 3. **Results** — view possession charts, player stats, speed analysis, and download outputs
-4. **AI Analyst** — generate a Gemini match report or ask questions about the match (requires `GEMINI_API_KEY`; see [docs/AI_ANALYST.md](docs/AI_ANALYST.md))
+4. **AI Analyst** — generate a match report, ask questions, or compare providers (requires `GEMINI_API_KEY` and/or `GROQ_API_KEY`; see [docs/AI_ANALYST.md](docs/AI_ANALYST.md))
 
 ---
 
