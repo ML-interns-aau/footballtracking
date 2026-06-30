@@ -59,7 +59,7 @@ class ConfigLoader:
     def _default_config(self) -> Dict[str, Any]:
         return {
             'model': {
-                'path': 'yolov8m_fixed.pt',
+                'path': 'yolo11m.pt',
                 'device': 'auto',
             },
             'detection': {

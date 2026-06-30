@@ -8,7 +8,7 @@ if platform.system() == 'Windows':
 class FootballDetector:
     def __init__(
         self,
-        model_path: str = "yolov8m_fixed.pt",
+        model_path: str = "yolo11m.pt",
         conf: float = 0.30,
         iou: float = 0.40,
         device: str = "cpu",

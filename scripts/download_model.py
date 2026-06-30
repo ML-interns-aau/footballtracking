@@ -20,7 +20,7 @@ import requests
 DEFAULT_URL = (
     "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8m.pt"
 )
-DEFAULT_OUTPUT = "yolov8m_fixed.pt"
+DEFAULT_OUTPUT = "yolo11m.pt"
 
 
 # ---------------------------------------------------------------------------

@@ -159,6 +159,7 @@ class EventsDetector:
         self._last_possessor_id: int | None = None
         self._last_possessor_team: str | None = None
         self._last_possession_frame: int = 0
+        self._possession_count: int = 0
 
         # ------------------------------------------------------------------ #
         # Skill-move state                                                     #
@@ -307,12 +308,14 @@ class EventsDetector:
                 self._state = "CONTROLLED"
                 self._possessor_id = self._candidate_id
                 self._possessor_team = self._candidate_team
-                self._emit_recovery(
-                    frame_idx, timestamp_ms, bx, by, data_exporter,
-                )
+                if self._last_possessor_id is not None:
+                    self._emit_recovery(
+                        frame_idx, timestamp_ms, bx, by, data_exporter,
+                    )
                 self._last_possessor_id = self._possessor_id
                 self._last_possessor_team = self._possessor_team
                 self._last_possession_frame = frame_idx
+                self._possession_count += 1
 
         elif self._state == "CONTROLLED":
             if is_controlled and self._candidate_id == self._possessor_id:
@@ -406,6 +409,7 @@ class EventsDetector:
                     self._last_possessor_id = receiver_id
                     self._last_possessor_team = receiver_team
                     self._last_possession_frame = frame_idx
+                    self._possession_count += 1
                     
             elif self._pass_duration_frames > self._MAX_PASS_DURATION_FRAMES:
                 self._state = "LOOSE_BALL"
@@ -732,9 +736,11 @@ class EventsDetector:
         inside (edge-triggered) and respect a per-player cooldown to prevent
         jitter near zone boundaries."""
 
-        # Only act when a player is in confirmed possession
+        # Only act when a player is in confirmed possession, and skip the very
+        # first possession of the clip — the player may already be inside a zone
+        # before any real action has started.
         possessor_id = self._possessor_id
-        if possessor_id is None or self._state != "CONTROLLED":
+        if possessor_id is None or self._state != "CONTROLLED" or self._possession_count < 2:
             # Update prev-zone sets to empty so re-entering after losing
             # possession still counts as a fresh entry.
             self._prev_in_zone["penalty_area"].clear()

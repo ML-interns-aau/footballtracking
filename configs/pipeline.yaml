@@ -5,7 +5,7 @@
 # MODEL SETTINGS
 # =============================================================================
 model:
-  path: "yolov8m_fixed.pt"  # Relative to project root
+  path: "yolo11m.pt"  # Relative to project root
   device: "auto"  # Options: auto, cpu, cuda, cuda:0, cuda:1, or specific GPU index
   
 # =============================================================================

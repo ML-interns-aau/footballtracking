@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-1.5-flash"
 API_KEY_ENV = "GEMINI_API_KEY"
 
 

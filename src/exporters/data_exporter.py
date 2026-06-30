@@ -89,6 +89,8 @@ class DataExporter:
     def finalize(self):
         def convert_numpy(obj):
             import numpy as np
+            if isinstance(obj, np.bool_):
+                return bool(obj)
             if isinstance(obj, (np.float32, np.float64)):
                 return float(obj)
             if isinstance(obj, (np.int32, np.int64)):
