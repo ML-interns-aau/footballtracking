@@ -138,5 +138,33 @@ def test_zone_events():
     print(f"{'='*50}")
 
 
+def test_predicted_ball_guard():
+    """A frame whose ball position is predicted (not detected) must not alter
+    possession state or emit ball-dependent events."""
+    ed = EventsDetector(fps=15)
+    exp = FakeExporter()
+
+    # Establish possession on real (detected-ball) frames.
+    for f in range(5):
+        ed.process_frame(f, (52.0, 34.0), {1: (52.0, 34.0)}, {1: "Team 0"}, 2.0, exp)
+    assert ed._state == "CONTROLLED"
+    state_before = ed._state
+    possessor_before = ed._possessor_id
+
+    # A predicted frame that *looks* like a fast pass to a distant opponent.
+    exp.events.clear()
+    ed.process_frame(
+        6, (80.0, 10.0),
+        {1: (52.0, 34.0), 2: (80.0, 10.0)},
+        {1: "Team 0", 2: "Team 1"},
+        40.0, exp, ball_is_predicted=True,
+    )
+    assert ed._state == state_before, f"state changed on predicted frame: {ed._state}"
+    assert ed._possessor_id == possessor_before
+    assert len(exp.events) == 0, f"predicted frame emitted events: {exp.events}"
+    print("[OK] predicted-ball frame emits nothing and holds possession state")
+
+
 if __name__ == "__main__":
     test_zone_events()
+    test_predicted_ball_guard()

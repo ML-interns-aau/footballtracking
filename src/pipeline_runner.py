@@ -317,6 +317,7 @@ class FootballPipelineRunner:
                 ball_speed_kmh=ball_speed_kmh,
                 data_exporter=data_exporter,
                 ball_trail=ball_tracker.get_trail(),
+                ball_is_predicted=ball_predicted,
             )
 
             csv_builder.add_frame(processed_frame_idx, tracked, team_ids)

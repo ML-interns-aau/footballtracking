@@ -204,6 +204,7 @@ class EventsDetector:
         ball_speed_kmh: float,
         data_exporter: "DataExporter",
         ball_trail: list[tuple[float, float]] | None = None,
+        ball_is_predicted: bool = False,
     ) -> None:
         """
         Analyse a single frame and emit any detected events via
@@ -228,8 +229,22 @@ class EventsDetector:
             ``BallTracker.get_trail()``).  When provided, used to compute
             ball direction for cross and skill-move detection.  If ``None``
             the pitch-space trail is used instead.
+        ball_is_predicted : bool
+            ``True`` when the ball position for this frame was interpolated by
+            the Kalman / optical-flow fallback rather than actually detected.
+            Such positions are unreliable, so all ball-dependent detection
+            (pass / cross / skill-move and the possession state machine they
+            drive) is skipped: we prefer to miss an event over fabricating one
+            from a guessed position. Possession state is held until a real
+            observation resumes.
         """
         timestamp_ms = int((frame_idx / self.fps) * 1000)
+
+        # Skip event logic on frames where the ball was not actually observed.
+        # The guessed position would otherwise produce spurious possession
+        # changes, passes, and crosses.
+        if ball_is_predicted:
+            return
 
         # Update internal pitch-space ball trail
         bx, by = float(ball_pos_m[0]), float(ball_pos_m[1])

@@ -184,7 +184,10 @@ class DataExporter:
         _DATA_DIR.mkdir(parents=True, exist_ok=True)
         write_json_atomic(_DATA_DIR / "events.json", convert_numpy(events_array))
         
-        total_passes = sum(1 for e in self.events if e.get("event_type") == "PASS_COMPLETED")
+        # Events are emitted with a "type" key (e.g. "pass"); the legacy
+        # "event_type"/"PASS_COMPLETED" form is never produced, which made this
+        # count always 0. Count completed passes by the actual schema.
+        total_passes = sum(1 for e in self.events if e.get("type") == "pass")
         final_data = {
             "match_info": self.match_info or {},
             "frames": serialized_frames,

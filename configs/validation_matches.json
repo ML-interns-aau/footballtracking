@@ -1,0 +1,26 @@
+{
+  "_comment": "Maps pipeline runs to StatsBomb matches for event-detection validation. Copy an entry under 'runs', fill in the StatsBomb match details, and run: python tools/validate_against_statsbomb.py --config configs/validation_matches.json",
+  "_fields": {
+    "name": "Label used for the report files.",
+    "run_dir": "Pipeline output dir containing events.json (e.g. data/insights/<run>).",
+    "clip_start_s": "Match-clock seconds at the clip's first frame (kickoff offset). 0 if the clip starts at kickoff.",
+    "statsbomb_events": "Path to a StatsBomb events/<match_id>.json file (offline path, preferred).",
+    "statsbomb_match_id": "Alternative to statsbomb_events: match id fetched via the optional statsbombpy package.",
+    "period": "Optional: restrict StatsBomb events to this half (1 or 2) when the clip is within one period.",
+    "tolerance_s": "Time window (seconds) for two events to be considered the same. Default 3.0.",
+    "team_map": "Optional StatsBomb-team-name -> 'home'/'away' map, enabling team-aware scoring.",
+    "match_teams": "Require team agreement for a match. Default false (our team-0/1 labels are arbitrary)."
+  },
+  "runs": [
+    {
+      "name": "EXAMPLE_replace_me",
+      "run_dir": "data/insights/England_preprocessed_20260625_174216",
+      "clip_start_s": 0.0,
+      "statsbomb_events": "data/statsbomb/events/REPLACE_WITH_MATCH_ID.json",
+      "period": 1,
+      "tolerance_s": 3.0,
+      "team_map": {},
+      "match_teams": false
+    }
+  ]
+}
