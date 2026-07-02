@@ -10,11 +10,71 @@ import streamlit as st
 from app.config import INSIGHTS_DIR, PROCESSED_DIR, get_game_list
 from app.utils import (
     page_header, render_pipeline, nav_button, metric_card,
-    ACCENT, TEXT_PRIMARY, TEXT_MUTED, BG_CARD, BG_DARK,
+    TEXT_PRIMARY, TEXT_MUTED, BG_CARD, BG_DARK,
 )
 
 TEAM_COLORS = {0: "#dc2626", 1: "#3b82f6", -1: "#52525b"}
 TEAM_NAMES  = {0: "Team A", 1: "Team B", -1: "Unassigned"}
+
+EVENT_LABELS = {
+    "pass": "Pass",
+    "interception": "Interception",
+    "recovery": "Ball Recovery",
+    "switch_of_play": "Switch of Play",
+    "skill_move": "Skill Move",
+    "cross": "Cross",
+    "penalty_area_entry": "Penalty Area Entry",
+    "final_third_entry": "Final Third Entry",
+}
+
+
+def _team_label(raw):
+    if raw == "Team 0":
+        return "Team A"
+    if raw == "Team 1":
+        return "Team B"
+    if not raw:
+        return "Unknown"
+    return raw
+
+
+def _event_row(e):
+    etype = e.get("type", "unknown")
+    team = None
+    if etype == "pass":
+        team = e.get("passer_team")
+        detail = f"Player {e.get('passer_id')} → Player {e.get('receiver_id')}"
+    elif etype == "interception":
+        team = e.get("interceptor_team")
+        detail = f"Player {e.get('interceptor_id')} won the ball off Player {e.get('passer_id')}"
+    elif etype == "recovery":
+        team = e.get("team")
+        detail = f"Player {e.get('player_id')} recovered a loose ball"
+    elif etype == "switch_of_play":
+        team = e.get("passer_team")
+        detail = f"Player {e.get('passer_id')} → Player {e.get('receiver_id')} (long switch)"
+    elif etype == "skill_move":
+        team = e.get("team")
+        detail = f"Player {e.get('player_id')} beat a defender"
+    elif etype == "cross":
+        team = e.get("team")
+        detail = f"Player {e.get('player_id')} delivered a cross"
+    elif etype == "penalty_area_entry":
+        team = e.get("team")
+        detail = f"Player {e.get('player_id')} entered the penalty area"
+    elif etype == "final_third_entry":
+        team = e.get("team")
+        detail = f"Player {e.get('player_id')} entered the final third"
+    else:
+        detail = etype.replace("_", " ").title()
+
+    return {
+        "Time": e.get("game_clock") or "",
+        "Event": EVENT_LABELS.get(etype, etype.replace("_", " ").title()),
+        "Team": _team_label(team),
+        "Details": detail,
+        "_frame": e.get("frame", 0),
+    }
 
 _LAYOUT = dict(
     template="plotly_dark",
@@ -48,7 +108,7 @@ def _layout(**overrides):
     return d
 
 
-from src.exporters.output_schema import OutputFiles, AnalyticsCSVColumns, TrackingCSVColumns
+from src.exporters.output_schema import OutputFiles, AnalyticsCSVColumns
 
 def _load_csv(name, game_id=None):
     """Load CSV file from game-specific folder or fallback locations."""
@@ -102,6 +162,26 @@ def _load_summary(game_id=None):
     return {}
 
 
+def _load_events(game_id=None):
+    """Load events.json (match events: passes, interceptions, crosses...)."""
+    if game_id:
+        p = os.path.join(INSIGHTS_DIR, game_id, "events.json")
+        if os.path.exists(p):
+            try:
+                with open(p) as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    p = os.path.join(INSIGHTS_DIR, "events.json")
+    if os.path.exists(p):
+        try:
+            with open(p) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return []
+
+
 def _find_tracked_video(game_id=None):
     """Find tracked video from game-specific folder or fallback locations."""
     # 1. Prefer the path stored in session state (set by analysis_page)
@@ -150,10 +230,11 @@ def render():
     poss_df       = _load_csv(OutputFiles.POSSESSION_SUMMARY, selected_game_id)
     track_df      = _load_csv(OutputFiles.TRACKING, selected_game_id)
     summary       = _load_summary(selected_game_id)
+    events        = _load_events(selected_game_id)
     tracked_video = _find_tracked_video(selected_game_id)
 
     # Check if any data is available
-    if player_df is None and poss_df is None and track_df is None and not tracked_video:
+    if player_df is None and poss_df is None and track_df is None and not events and not tracked_video:
         st.warning("No results found. The analysis may not have completed successfully. Run the analysis pipeline first.")
         if selected_game_id:
             st.info(f"Game folder: {selected_game_id}")
@@ -162,24 +243,11 @@ def render():
             nav_button("Go to Analysis", "Analysis")
         return
 
-    # Summary metrics (from analytics.json if available)
-    if summary and isinstance(summary, dict):
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.markdown(metric_card("Video", summary.get("video", "—")), unsafe_allow_html=True)
-        with c2:
-            st.markdown(metric_card("Frames", f"{summary.get('total_frames', 0):,}"), unsafe_allow_html=True)
-        with c3:
-            st.markdown(metric_card("Resolution", summary.get("resolution", "—")), unsafe_allow_html=True)
-        with c4:
-            st.markdown(metric_card("Replays Skipped", str(summary.get("replays_detected", 0))), unsafe_allow_html=True)
-        st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
-
     if tracked_video:
         with st.expander("▶  Tracked Video Preview"):
             st.video(tracked_video)
 
-    # Show team heatmaps if available (from game-specific folder)
+    # Resolve team heatmaps if available (from game-specific folder)
     heatmap_paths = []
     if selected_game_id:
         game_heatmaps_dir = os.path.join(INSIGHTS_DIR, selected_game_id, "heatmaps")
@@ -188,23 +256,11 @@ def render():
                 os.path.join(game_heatmaps_dir, "team_0_heatmap.png"),
                 os.path.join(game_heatmaps_dir, "team_1_heatmap.png")
             ]
-    
-    if any(os.path.exists(p) for p in heatmap_paths):
-        st.markdown("##### Team Heatmaps")
-        c0, c1 = st.columns(2)
-        cols = [c0, c1]
-        for i, col in enumerate(cols):
-            p = heatmap_paths[i]
-            with col:
-                if os.path.exists(p):
-                    st.image(p, width='stretch', caption=TEAM_NAMES.get(i, f"Team {i}"))
-                else:
-                    st.info(f"{TEAM_NAMES.get(i, f'Team {i}')} heatmap not available")
 
     st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
 
-    tab_poss, tab_player, tab_speed, tab_track, tab_dl = st.tabs([
-        "Possession", "Players", "Speed", "Tracking", "Downloads",
+    tab_events, tab_poss, tab_heatmap, tab_player, tab_dl = st.tabs([
+        "Events", "Possession", "Heatmaps", "Players", "Downloads",
     ])
 
     # POSSESSION
@@ -261,6 +317,47 @@ def render():
         else:
             st.info("No possession data available.")
 
+    # EVENTS
+    with tab_events:
+        if events:
+            rows = [_event_row(e) for e in events]
+            events_df = pd.DataFrame(rows).sort_values("_frame")
+
+            f1, f2 = st.columns(2)
+            with f1:
+                event_types = st.multiselect(
+                    "Filter by event", sorted(events_df["Event"].unique().tolist()),
+                    default=sorted(events_df["Event"].unique().tolist()), key="ev_type_filter",
+                )
+            with f2:
+                team_filter = st.multiselect(
+                    "Filter by team", sorted(events_df["Team"].unique().tolist()),
+                    default=sorted(events_df["Team"].unique().tolist()), key="ev_team_filter",
+                )
+
+            st.caption("Times line up with the video clock — use them to jump to the moment in the recording.")
+            timeline = events_df[
+                events_df["Event"].isin(event_types) & events_df["Team"].isin(team_filter)
+            ][["Time", "Event", "Team", "Details"]]
+            st.dataframe(timeline, width='stretch', hide_index=True, height=460)
+        else:
+            st.info("No match events detected for this game.")
+
+    # HEATMAPS
+    with tab_heatmap:
+        if any(os.path.exists(p) for p in heatmap_paths):
+            c0, c1 = st.columns(2)
+            cols = [c0, c1]
+            for i, col in enumerate(cols):
+                p = heatmap_paths[i]
+                with col:
+                    if os.path.exists(p):
+                        st.image(p, width='stretch', caption=TEAM_NAMES.get(i, f"Team {i}"))
+                    else:
+                        st.info(f"{TEAM_NAMES.get(i, f'Team {i}')} heatmap not available")
+        else:
+            st.info("No heatmaps available for this game.")
+
     # PLAYERS
     with tab_player:
         if player_df is not None and not player_df.empty:
@@ -303,104 +400,6 @@ def render():
         else:
             st.info("No player data available.")
 
-    # SPEED
-    with tab_speed:
-        if player_df is not None and "top_speed_km_h" in player_df.columns:
-            sdf = player_df.copy()
-            sdf["team"] = sdf["team_id"].map(TEAM_NAMES)
-
-            col_a, col_b = st.columns(2)
-            with col_a:
-                fig3 = go.Figure()
-                for tid, tname in TEAM_NAMES.items():
-                    sub = sdf[sdf["team_id"] == tid]
-                    if sub.empty:
-                        continue
-                    fig3.add_trace(go.Violin(
-                        y=sub["top_speed_km_h"], name=tname,
-                        box_visible=True, meanline_visible=True,
-                        fillcolor=TEAM_COLORS[tid], opacity=0.7,
-                        line_color=TEAM_COLORS[tid],
-                        hovertemplate="%{y:.1f} km/h<extra></extra>",
-                    ))
-                fig3.update_layout(**_layout(height=360, title="Speed Distribution by Team"))
-                st.plotly_chart(fig3, width='stretch')
-
-            with col_b:
-                top10 = sdf.nlargest(10, "top_speed_km_h").sort_values("top_speed_km_h")
-                fig4 = go.Figure()
-                for tid, tname in TEAM_NAMES.items():
-                    sub = top10[top10["team_id"] == tid]
-                    if sub.empty:
-                        continue
-                    fig4.add_trace(go.Bar(
-                        y=sub["object_id"].astype(str), x=sub["top_speed_km_h"],
-                        name=tname, orientation="h",
-                        marker=dict(color=TEAM_COLORS[tid], opacity=0.85, line=dict(width=0)),
-                        text=sub["top_speed_km_h"].round(1).astype(str) + " km/h",
-                        textposition="outside",
-                        textfont=dict(size=10, color=TEXT_MUTED),
-                        hovertemplate="Player %{y}<br>%{x:.1f} km/h<extra></extra>",
-                    ))
-                fig4.update_layout(**_layout(height=360, title="Fastest Players"),
-                                   barmode="stack", xaxis_title="Top Speed (km/h)", yaxis_title="Player ID")
-                st.plotly_chart(fig4, width='stretch')
-
-            if "avg_speed_km_h" in sdf.columns:
-                fig5 = go.Figure()
-                for tid, tname in TEAM_NAMES.items():
-                    sub = sdf[sdf["team_id"] == tid]
-                    if sub.empty:
-                        continue
-                    fig5.add_trace(go.Scatter(
-                        x=sub["avg_speed_km_h"], y=sub["top_speed_km_h"],
-                        mode="markers", name=tname,
-                        marker=dict(color=TEAM_COLORS[tid], size=9, opacity=0.8,
-                                    line=dict(width=1, color="rgba(255,255,255,0.1)")),
-                        text=sub["object_id"].astype(str),
-                        hovertemplate="Player %{text}<br>Avg: %{x:.1f} km/h<br>Top: %{y:.1f} km/h<extra></extra>",
-                    ))
-                fig5.update_layout(**_layout(height=360, title="Speed Profile: Average vs Peak"),
-                                   xaxis_title="Average Speed (km/h)", yaxis_title="Top Speed (km/h)")
-                st.plotly_chart(fig5, width='stretch')
-        else:
-            st.info("No speed data available.")
-
-    # TRACKING
-    with tab_track:
-        if track_df is not None and not track_df.empty:
-            st.caption(f"{len(track_df):,} rows — showing first 500")
-            st.dataframe(track_df.head(500), width='stretch', hide_index=True, height=360)
-
-            if TrackingCSVColumns.FRAME in track_df.columns and TrackingCSVColumns.TRACK_ID in track_df.columns:
-                per_frame = track_df.groupby(TrackingCSVColumns.FRAME)[TrackingCSVColumns.TRACK_ID].nunique().reset_index()
-                per_frame.columns = [TrackingCSVColumns.FRAME, "objects"]
-                fig6 = go.Figure()
-                fig6.add_trace(go.Scatter(
-                    x=per_frame[TrackingCSVColumns.FRAME], y=per_frame["objects"],
-                    mode="lines", fill="tozeroy",
-                    fillcolor="rgba(220,38,38,0.08)",
-                    line=dict(color=ACCENT, width=1.5),
-                    hovertemplate="Frame %{x}<br>%{y} objects<extra></extra>",
-                ))
-                fig6.update_layout(**_layout(height=300, title="Active Tracked Objects Over Time"),
-                                   xaxis_title="Frame", yaxis_title="Objects")
-                st.plotly_chart(fig6, width='stretch')
-
-            if TrackingCSVColumns.CENTER_X in track_df.columns and TrackingCSVColumns.CENTER_Y in track_df.columns:
-                fig7 = go.Figure(go.Histogram2dContour(
-                    x=track_df[TrackingCSVColumns.CENTER_X], y=track_df[TrackingCSVColumns.CENTER_Y],
-                    colorscale=[[0, "rgba(0,0,0,0)"], [0.3, "rgba(220,38,38,0.2)"],
-                                [0.7, "rgba(220,38,38,0.6)"], [1, "#dc2626"]],
-                    reversescale=False, showscale=False, ncontours=20,
-                    contours=dict(showlines=False),
-                ))
-                fig7.update_layout(**_layout(height=380, title="Player Position Heatmap"),
-                                   xaxis_title="X", yaxis_title="Y", yaxis_autorange="reversed")
-                st.plotly_chart(fig7, width='stretch')
-        else:
-            st.info("No tracking data available.")
-
     # DOWNLOADS
     with tab_dl:
         downloads = [
@@ -435,6 +434,11 @@ def render():
             st.download_button("⬇  Download Analytics (JSON)",
                                data=json.dumps(summary, indent=2),
                                file_name=OutputFiles.ANALYTICS_JSON,
+                               mime="application/json", width='stretch')
+        if events:
+            st.download_button("⬇  Download Match Events (JSON)",
+                               data=json.dumps(events, indent=2),
+                               file_name="events.json",
                                mime="application/json", width='stretch')
 
     st.markdown("---")
