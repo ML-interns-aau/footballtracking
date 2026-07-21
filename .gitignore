@@ -25,6 +25,7 @@ htmlcov/
 # ─── Editor & OS ──────────────────────────────────────────────────────────────
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 .DS_Store
@@ -43,6 +44,10 @@ data/
 results/
 test_results/
 logs/
+.cache/
+
+# ─── Large model/calibration weights ──────────────────────────────────────────
+weights/
 
 # ─── Video files ──────────────────────────────────────────────────────────────
 *.mp4
