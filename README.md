@@ -18,6 +18,7 @@ A Streamlit-based football analytics platform that turns raw match video into st
 | **CSV / JSON Export** | Player summary, tracking data, pipeline summary |
 | **GPU Acceleration** | Automatic CUDA detection; falls back to CPU |
 | **AI Analyst (Gemini + Groq)** | Multi-provider natural-language match reports + grounded Q&A chat, with provider comparison — see [docs/AI_ANALYST.md](docs/AI_ANALYST.md) |
+| **Corner-Kick Timing** | Automatic kick-moment and first-contact frame extraction from a corner-kick clip, camera-motion compensated with decoy-aware ball tracking — see [Corner-Kick Timing](#corner-kick-timing) below |
 
 ---
 
@@ -77,6 +78,9 @@ football_tracking_project/
 │   ├── exporters/               # JSON/CSV formatting and outputs
 │   └── visualization/           # Frame annotation
 ├── main.py                      # Clean pipeline entry point
+├── tools/
+│   ├── extract_corner_snapshots.py  # Corner-kick timing: auto kick/contact frame extraction
+│   └── validate.py                  # Ground-truth accuracy validation for the above
 ├── models/
 │   └── yolov8m_fixed.pt         # YOLO weights
 ├── data/
@@ -105,6 +109,48 @@ python main.py --input data/raw/match.mp4 --output_dir results --max_frames 0
 | `--input` | required | Path to input video |
 | `--output_dir` | `results` | Directory for outputs |
 | `--max_frames` | `0` (all) | Limit frames processed (0 = full video) |
+
+---
+
+## Corner-Kick Timing
+
+Extracts two key frames from a corner-kick clip: the moment the ball is
+struck (**kick**) and the frame of first contact by another player
+afterward (**contact**). Detection/tracking runs entirely in a
+camera-motion-compensated coordinate space so pan doesn't corrupt the
+timing, with decoy-aware ball clustering to reject sideline balls and
+sponsor-board false positives.
+
+```bash
+python tools/extract_corner_snapshots.py \
+    --input clip_1.mp4 --output_dir results/corner_snapshots \
+    --model models/yolo11l.pt --ball_weights models/soccana_yolo11n.pt
+
+# Override an auto-detected frame if it looks wrong on ball_speed_debug.png:
+python tools/extract_corner_snapshots.py --input clip_1.mp4 \
+    --kick_frame 42 --contact_frame 57
+```
+
+Outputs `kick_frame_<N>.png`, `contact_frame_<M>.png`, a debug plot of
+ball speed vs. frame index, and `snapshot_metadata.json` with the
+thresholds and confidence used. A pass1+2 result cache
+(`.cache/pass12/`, git-ignored) skips re-running detection when only the
+event-timing parameters change, since detection is the expensive part
+by a wide margin.
+
+Contact detection is only as good as the ball's visibility: if the ball
+goes untracked for a long stretch (fast flight, motion blur, or a
+crowded penalty box) and the true contact falls inside that gap, the
+tool reports `contact_frame: null` rather than guessing.
+
+Validate against ground truth:
+
+```bash
+python tools/validate.py
+```
+
+Checks the auto-picked kick/contact frames against known-correct values
+for the bundled reference clips, within a ±3 frame tolerance.
 
 ---
 
