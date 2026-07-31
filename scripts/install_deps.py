@@ -12,6 +12,9 @@ import sys
 import time
 import argparse
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 
 _PIP = [sys.executable, "-m", "pip", "install", "--retries", "10", "--timeout", "120"]
 
@@ -48,6 +51,9 @@ _VERIFY_CHECKS: list[tuple[str, str]] = [
 _SEP = "=" * 50
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def _install(pkg: str, attempt: int = 1, max_attempts: int = 5) -> bool:
     print(f"\n{_SEP}")
@@ -76,6 +82,9 @@ def _verify_imports() -> None:
             print(f"  ✗ {name}: {r.stderr.strip()[:80]}")
 
 
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Install project dependencies")

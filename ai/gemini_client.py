@@ -18,6 +18,9 @@ DEFAULT_MODEL = "gemini-1.5-flash"
 API_KEY_ENV = "GEMINI_API_KEY"
 
 
+# Backwards-compatible aliases. Existing call sites catch these names; keeping
+# them as subclasses of the shared errors means generic ``except LLMError``
+# handlers also catch Gemini failures.
 class GeminiConfigError(LLMConfigError):
     """Client could not be configured — missing key or missing dependency."""
 

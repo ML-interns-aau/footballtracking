@@ -16,6 +16,7 @@ from src.exporters.output_schema import OutputFiles
 from .model import NormEvent
 
 
+# Position field to use per event type when projecting to pitch space.
 _XY_FIELD = {
     "pass": "start_xy",
     "switch_of_play": "start_xy",
@@ -50,6 +51,7 @@ def _event_xy(ev: dict[str, Any]) -> tuple[Optional[float], Optional[float]]:
     field = _XY_FIELD.get(ev.get("type", ""))
     if field and isinstance(ev.get(field), (list, tuple)) and len(ev[field]) >= 2:
         return float(ev[field][0]), float(ev[field][1])
+    # cross stores origin as separate scalar fields
     if ev.get("origin_x_m") is not None and ev.get("origin_y_m") is not None:
         return float(ev["origin_x_m"]), float(ev["origin_y_m"])
     return None, None
@@ -65,6 +67,7 @@ def _read_team_id_map(run_dir: Path) -> dict[str, str]:
         with open(analytics_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         raw = (data.get("match_info") or {}).get("team_id_map") or {}
+        # keys may be ints or strings depending on JSON round-trips
         return {str(k): v for k, v in raw.items()} or default
     except (json.JSONDecodeError, OSError):
         return default

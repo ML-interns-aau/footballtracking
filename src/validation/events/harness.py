@@ -65,7 +65,7 @@ class RunSpec:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "RunSpec":
-        known = {f for f in cls.__dataclass_fields__}
+        known = {f for f in cls.__dataclass_fields__}  # type: ignore[attr-defined]
         unknown = set(d) - known
         if unknown:
             raise ValueError(f"Unknown RunSpec field(s): {sorted(unknown)}")

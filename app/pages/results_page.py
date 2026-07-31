@@ -1,3 +1,4 @@
+# app/pages/results_page.py
 """Results Page — pipeline outputs with aesthetic charts."""
 
 import os
@@ -112,6 +113,7 @@ from src.exporters.output_schema import OutputFiles, AnalyticsCSVColumns
 def _load_csv(name, game_id=None):
     """Load CSV file from game-specific folder or fallback locations."""
     
+    # If game_id is provided, try game-specific folder first
     if game_id:
         game_path = os.path.join(INSIGHTS_DIR, game_id)
         p = os.path.join(game_path, name)
@@ -121,6 +123,7 @@ def _load_csv(name, game_id=None):
             except Exception:
                 pass
     
+    # Fallback to old insights directory
     p = os.path.join(INSIGHTS_DIR, name)
     if os.path.exists(p):
         try:
@@ -133,6 +136,7 @@ def _load_csv(name, game_id=None):
 def _load_summary(game_id=None):
     """Load analytics.json metadata from game-specific folder or fallback."""
     
+    # If game_id is provided, try game-specific folder first
     if game_id:
         game_path = os.path.join(INSIGHTS_DIR, game_id)
         p = os.path.join(game_path, OutputFiles.ANALYTICS_JSON)
@@ -140,15 +144,18 @@ def _load_summary(game_id=None):
             try:
                 with open(p) as f:
                     data = json.load(f)
+                    # Extract metadata section for display
                     return data.get("metadata", {})
             except Exception:
                 pass
     
+    # Fallback to old insights directory
     p = os.path.join(INSIGHTS_DIR, OutputFiles.ANALYTICS_JSON)
     if os.path.exists(p):
         try:
             with open(p) as f:
                 data = json.load(f)
+                # Extract metadata section for display
                 return data.get("metadata", {})
         except Exception:
             pass
@@ -177,16 +184,19 @@ def _load_events(game_id=None):
 
 def _find_tracked_video(game_id=None):
     """Find tracked video from game-specific folder or fallback locations."""
+    # 1. Prefer the path stored in session state (set by analysis_page)
     v = st.session_state.get("tracked_video")
     if v and os.path.exists(v):
         return v
     
+    # 2. If game_id is provided, check game-specific folder
     if game_id:
         game_path = os.path.join(INSIGHTS_DIR, game_id)
         canonical = os.path.join(game_path, OutputFiles.ANNOTATED_VIDEO)
         if os.path.exists(canonical):
             return canonical
     
+    # 3. Fallback to old locations
     if os.path.exists(PROCESSED_DIR):
         for f in sorted(os.listdir(PROCESSED_DIR)):
             if "tracked" in f and f.endswith(".mp4"):
@@ -196,7 +206,9 @@ def _find_tracked_video(game_id=None):
 
 def render():
     page_header("Results", "Possession, player stats, speed analysis, and exports.")
+    # render_pipeline(done_up_to=3)
     
+    # Game selection
     games = get_game_list()
     
     if games:
@@ -213,6 +225,7 @@ def render():
         st.info("No games found. Run analysis first.")
         selected_game_id = None
     
+    # Load data for selected game
     player_df     = _load_csv(OutputFiles.PLAYER_SUMMARY, selected_game_id)
     poss_df       = _load_csv(OutputFiles.POSSESSION_SUMMARY, selected_game_id)
     track_df      = _load_csv(OutputFiles.TRACKING, selected_game_id)
@@ -220,6 +233,7 @@ def render():
     events        = _load_events(selected_game_id)
     tracked_video = _find_tracked_video(selected_game_id)
 
+    # Check if any data is available
     if player_df is None and poss_df is None and track_df is None and not events and not tracked_video:
         st.warning("No results found. The analysis may not have completed successfully. Run the analysis pipeline first.")
         if selected_game_id:
@@ -233,6 +247,7 @@ def render():
         with st.expander("▶  Tracked Video Preview"):
             st.video(tracked_video)
 
+    # Resolve team heatmaps if available (from game-specific folder)
     heatmap_paths = []
     if selected_game_id:
         game_heatmaps_dir = os.path.join(INSIGHTS_DIR, selected_game_id, "heatmaps")
@@ -248,6 +263,7 @@ def render():
         "Events", "Possession", "Heatmaps", "Players", "Downloads",
     ])
 
+    # POSSESSION
     with tab_poss:
         if poss_df is not None and not poss_df.empty:
             poss_df = poss_df.copy()
@@ -301,6 +317,7 @@ def render():
         else:
             st.info("No possession data available.")
 
+    # EVENTS
     with tab_events:
         if events:
             rows = [_event_row(e) for e in events]
@@ -326,6 +343,7 @@ def render():
         else:
             st.info("No match events detected for this game.")
 
+    # HEATMAPS
     with tab_heatmap:
         if any(os.path.exists(p) for p in heatmap_paths):
             c0, c1 = st.columns(2)
@@ -340,6 +358,7 @@ def render():
         else:
             st.info("No heatmaps available for this game.")
 
+    # PLAYERS
     with tab_player:
         if player_df is not None and not player_df.empty:
             df = player_df.copy()
@@ -381,6 +400,7 @@ def render():
         else:
             st.info("No player data available.")
 
+    # DOWNLOADS
     with tab_dl:
         downloads = [
             ("Player Summary", OutputFiles.PLAYER_SUMMARY, player_df, "Per-player stats: speed, possession, team."),

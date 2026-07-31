@@ -82,31 +82,40 @@ if TYPE_CHECKING:
     from src.exporters.data_exporter import DataExporter
 
 
+# ---------------------------------------------------------------------------
+# Tunable thresholds (all distances in metres, speeds in km/h, angles in deg)
+# ---------------------------------------------------------------------------
 
-_PASS_POSSESSION_RADIUS_M: float = 3.5
-_PASS_MIN_POSSESSION_FRAMES: int = 2
-_PASS_MIN_LOOSE_FRAMES: int = 8
-_PASS_MIN_BALL_SPEED_KMH: float = 5.0
-_PASS_HIGH_SPEED_RELEASE_KMH: float = 15.0
+# --- Pass ---
+_PASS_POSSESSION_RADIUS_M: float = 3.5       # ball must be this close to grant possession
+_PASS_MIN_POSSESSION_FRAMES: int = 2         # frames of contact needed to confirm possession
+_PASS_MIN_LOOSE_FRAMES: int = 8             # frames the ball must be free before a pass is logged
+_PASS_MIN_BALL_SPEED_KMH: float = 5.0       # minimum ball speed to even consider a pass
+_PASS_HIGH_SPEED_RELEASE_KMH: float = 15.0  # immediate possession-loss if ball this fast
 
-_SWITCH_OF_PLAY_MIN_DY_M: float = 35.0
+# --- Switch of play ---
+_SWITCH_OF_PLAY_MIN_DY_M: float = 35.0      # min lateral (y-axis) change for a completed pass to count as a switch
 
-_SKILL_MIN_POSSESSION_FRAMES: int = 6
-_SKILL_MIN_DIRECTION_CHANGE_DEG: float = 60.0
-_SKILL_MAX_BALL_SPEED_KMH: float = 35.0
-_SKILL_COOLDOWN_FRAMES: int = 30
+# --- Skill move ---
+_SKILL_MIN_POSSESSION_FRAMES: int = 6        # player must be near ball for at least N frames
+_SKILL_MIN_DIRECTION_CHANGE_DEG: float = 60.0  # minimum angle of direction-change
+_SKILL_MAX_BALL_SPEED_KMH: float = 35.0      # ball must not be flying (it's a dribble)
+_SKILL_COOLDOWN_FRAMES: int = 30             # don't re-detect for this many frames per player
 
-_CROSS_WIDE_X_FRACTION: float = 0.20
-_CROSS_MIN_BALL_SPEED_KMH: float = 30.0
-_CROSS_MIN_INWARD_Y_M: float = 6.0
-_CROSS_COOLDOWN_FRAMES: int = 40
+# --- Cross ---
+_CROSS_WIDE_X_FRACTION: float = 0.20        # within 20 % of pitch width from touchline (x < 21 m or x > 84 m)
+_CROSS_MIN_BALL_SPEED_KMH: float = 30.0     # fast kicks only
+_CROSS_MIN_INWARD_Y_M: float = 6.0          # ball must be heading toward the box (|Δy| > threshold)
+_CROSS_COOLDOWN_FRAMES: int = 40            # minimum frames between consecutive cross detections
 
-_PENALTY_AREA_DEPTH_M: float = 16.5
-_PENALTY_AREA_WIDTH_M: float = 40.3
-_PENALTY_AREA_COOLDOWN_FRAMES: int = 50
+# --- Penalty area entry ---
+_PENALTY_AREA_DEPTH_M: float = 16.5         # FIFA standard penalty area depth from goal line
+_PENALTY_AREA_WIDTH_M: float = 40.3         # FIFA standard penalty area width, centred on goal
+_PENALTY_AREA_COOLDOWN_FRAMES: int = 50     # suppress re-fire per player
 
-_FINAL_THIRD_DEPTH_M: float = 35.0
-_FINAL_THIRD_COOLDOWN_FRAMES: int = 50
+# --- Final third entry ---
+_FINAL_THIRD_DEPTH_M: float = 35.0          # 105 / 3 — the final third of the pitch
+_FINAL_THIRD_COOLDOWN_FRAMES: int = 50      # suppress re-fire per player
 
 
 class EventsDetector:
@@ -133,6 +142,9 @@ class EventsDetector:
         self.pitch_width_m = float(pitch_width_m)
         self.pitch_height_m = float(pitch_height_m)
 
+        # ------------------------------------------------------------------ #
+        # Possession / pass state                                              #
+        # ------------------------------------------------------------------ #
         self._state: str = "LOOSE_BALL"
         self._possessor_id: int | None = None
         self._possessor_team: str | None = None
@@ -149,22 +161,40 @@ class EventsDetector:
         self._last_possession_frame: int = 0
         self._possession_count: int = 0
 
+        # ------------------------------------------------------------------ #
+        # Skill-move state                                                     #
+        # ------------------------------------------------------------------ #
+        # Per-player: deque of recent (frame_idx, x_m, y_m) while in possession
         self._player_ball_contacts: dict[int, deque] = defaultdict(lambda: deque(maxlen=20))
-        self._skill_cooldown: dict[int, int] = {}
+        self._skill_cooldown: dict[int, int] = {}  # player_id -> last skill frame
 
-        self._cross_last_frame: int = -_CROSS_COOLDOWN_FRAMES
+        # ------------------------------------------------------------------ #
+        # Cross state                                                          #
+        # ------------------------------------------------------------------ #
+        self._cross_last_frame: int = -_CROSS_COOLDOWN_FRAMES  # last detected cross frame
 
+        # ------------------------------------------------------------------ #
+        # Spatial-zone entry state                                             #
+        # ------------------------------------------------------------------ #
+        # Per-player cooldown: zone_name -> {player_id -> last_event_frame}
         self._zone_cooldowns: dict[str, dict[int, int]] = {
             "penalty_area": {},
             "final_third": {},
         }
+        # Players inside each zone on the *previous* frame (for edge detection)
         self._prev_in_zone: dict[str, set[int]] = {
             "penalty_area": set(),
             "final_third": set(),
         }
 
-        self._ball_trail: deque = deque(maxlen=30)
+        # ------------------------------------------------------------------ #
+        # Ball trail (last N pitch-space positions)                           #
+        # ------------------------------------------------------------------ #
+        self._ball_trail: deque = deque(maxlen=30)   # (frame_idx, x_m, y_m)
 
+    # ---------------------------------------------------------------------- #
+    # Public API                                                              #
+    # ---------------------------------------------------------------------- #
 
     def process_frame(
         self,
@@ -211,12 +241,17 @@ class EventsDetector:
         """
         timestamp_ms = int((frame_idx / self.fps) * 1000)
 
+        # Skip event logic on frames where the ball was not actually observed.
+        # The guessed position would otherwise produce spurious possession
+        # changes, passes, and crosses.
         if ball_is_predicted:
             return
 
+        # Update internal pitch-space ball trail
         bx, by = float(ball_pos_m[0]), float(ball_pos_m[1])
         self._ball_trail.append((frame_idx, bx, by))
 
+        # ---- Run detectors -----------------------------------------------
         self._detect_pass(
             frame_idx, timestamp_ms, bx, by,
             player_positions, player_teams, ball_speed_kmh, data_exporter,
@@ -234,6 +269,9 @@ class EventsDetector:
             player_positions, player_teams, data_exporter,
         )
 
+    # ---------------------------------------------------------------------- #
+    # Pass detection                                                          #
+    # ---------------------------------------------------------------------- #
 
     def _find_closest_player(
         self,
@@ -308,6 +346,8 @@ class EventsDetector:
                     self._pass_start_frame = self._last_possession_frame
                     self._pass_start_xy = (bx, by)
                     self._pass_duration_frames = 0
+                    # No PASS_ATTEMPT event is emitted; we wait for the
+                    # outcome (completion or interception) before reporting.
                 else:
                     self._state = "LOOSE_BALL"
                     self._possessor_id = None
@@ -359,6 +399,8 @@ class EventsDetector:
                         }
                         data_exporter.add_event(completed_event)
 
+                        # A successful pass with a large lateral (y-axis) change
+                        # is also reported as a switch of play.
                         if dy_m > _SWITCH_OF_PLAY_MIN_DY_M:
                             self._emit_switch_of_play(
                                 frame_idx, timestamp_ms, bx, by, pass_id,
@@ -368,6 +410,8 @@ class EventsDetector:
 
                         self._pass_id_counter += 1
                     else:
+                        # Opponent gained the ball – this is an interception,
+                        # not a completed pass, so it gets its own event type.
                         self._emit_interception(
                             frame_idx, timestamp_ms, bx, by,
                             receiver_id, receiver_team, ball_speed_kmh,
@@ -482,6 +526,9 @@ class EventsDetector:
         }
         data_exporter.add_event(event)
 
+    # ---------------------------------------------------------------------- #
+    # Skill-move detection                                                    #
+    # ---------------------------------------------------------------------- #
 
     def _detect_skill_move(
         self,
@@ -506,22 +553,26 @@ class EventsDetector:
           3. Emit skill_move if angle exceeds threshold.
         """
         if ball_speed_kmh > _SKILL_MAX_BALL_SPEED_KMH:
+            # Ball moving too fast – it's a kick, not a dribble
             return
 
         closest_id, closest_dist = self._find_closest_player(bx, by, player_positions)
         if closest_id is None or closest_dist > _PASS_POSSESSION_RADIUS_M:
             return
 
+        # Accumulate contact history for this player
         history = self._player_ball_contacts[closest_id]
         history.append((frame_idx, bx, by))
 
         if len(history) < _SKILL_MIN_POSSESSION_FRAMES:
             return
 
+        # Cooldown check
         last_skill = self._skill_cooldown.get(closest_id, -_SKILL_COOLDOWN_FRAMES)
         if frame_idx - last_skill < _SKILL_COOLDOWN_FRAMES:
             return
 
+        # Compute direction change: vector across first half vs second half
         mid = len(history) // 2
         early = list(history)[:mid]
         late = list(history)[mid:]
@@ -535,6 +586,7 @@ class EventsDetector:
         mag_late = math.hypot(dx_late, dy_late)
 
         if mag_early < 0.3 or mag_late < 0.3:
+            # Barely moved – not a dribble
             return
 
         cos_angle = (
@@ -557,17 +609,23 @@ class EventsDetector:
                 "team": player_teams.get(closest_id),
                 "direction_change_deg": round(angle_deg, 1),
                 "ball_speed_kmh": round(float(ball_speed_kmh), 2),
+                # pass-only fields
                 "passer_id": None,
                 "receiver_id": None,
                 "passer_team": None,
                 "receiver_team": None,
+                # cross-only fields
                 "origin_x_m": None,
                 "origin_y_m": None,
             }
             data_exporter.add_event(event)
             self._skill_cooldown[closest_id] = frame_idx
+            # Clear history so we do not double-fire on the same move
             history.clear()
 
+    # ---------------------------------------------------------------------- #
+    # Cross detection                                                         #
+    # ---------------------------------------------------------------------- #
 
     def _detect_cross(
         self,
@@ -587,27 +645,32 @@ class EventsDetector:
 
         Uses the last two pitch-space ball trail entries to determine direction.
         """
+        # Cooldown guard
         if frame_idx - self._cross_last_frame < _CROSS_COOLDOWN_FRAMES:
             return
 
         if ball_speed_kmh < _CROSS_MIN_BALL_SPEED_KMH:
             return
 
+        # Is the ball in a wide area?
         wide_threshold_m = self.pitch_width_m * _CROSS_WIDE_X_FRACTION
         is_wide_left = bx < wide_threshold_m
         is_wide_right = bx > (self.pitch_width_m - wide_threshold_m)
         if not (is_wide_left or is_wide_right):
             return
 
+        # Check direction from ball trail (pitch space)
         if len(self._ball_trail) < 2:
             return
 
+        # Use a few frames back to get a stable direction
         lookback = min(5, len(self._ball_trail) - 1)
         trail_list = list(self._ball_trail)
         _, prev_bx, prev_by = trail_list[-1 - lookback]
         delta_x = bx - prev_bx
         delta_y = by - prev_by
 
+        # Ball must move inward (toward pitch centre in x) and significantly in y
         moving_inward = (is_wide_left and delta_x > 0) or (is_wide_right and delta_x < 0)
         if not moving_inward:
             return
@@ -615,11 +678,13 @@ class EventsDetector:
         if abs(delta_y) < _CROSS_MIN_INWARD_Y_M:
             return
 
+        # Attribute to the last known possessor (or closest current player)
         player_id: int | None = self._last_possessor_id or self._possessor_id
         team: str | None = None
         if player_id is not None:
             team = player_teams.get(player_id)
         else:
+            # Fall back to closest player
             closest_id, closest_dist = self._find_closest_player(bx, by, player_positions)
             if closest_id is not None and closest_dist <= _PASS_POSSESSION_RADIUS_M * 2:
                 player_id = closest_id
@@ -638,15 +703,20 @@ class EventsDetector:
             "origin_x_m": round(bx, 2),
             "origin_y_m": round(by, 2),
             "ball_speed_kmh": round(float(ball_speed_kmh), 2),
+            # pass-only fields
             "passer_id": None,
             "receiver_id": None,
             "passer_team": None,
             "receiver_team": None,
+            # skill-only fields
             "direction_change_deg": None,
         }
         data_exporter.add_event(event)
         self._cross_last_frame = frame_idx
 
+    # ---------------------------------------------------------------------- #
+    # Spatial-zone entry detection                                            #
+    # ---------------------------------------------------------------------- #
 
     def _point_in_penalty_area(self, x_m: float, y_m: float) -> bool:
         """Return True if ``(x_m, y_m)`` is inside either penalty area.
@@ -681,8 +751,13 @@ class EventsDetector:
         inside (edge-triggered) and respect a per-player cooldown to prevent
         jitter near zone boundaries."""
 
+        # Only act when a player is in confirmed possession, and skip the very
+        # first possession of the clip — the player may already be inside a zone
+        # before any real action has started.
         possessor_id = self._possessor_id
         if possessor_id is None or self._state != "CONTROLLED" or self._possession_count < 2:
+            # Update prev-zone sets to empty so re-entering after losing
+            # possession still counts as a fresh entry.
             self._prev_in_zone["penalty_area"].clear()
             self._prev_in_zone["final_third"].clear()
             return
@@ -694,6 +769,7 @@ class EventsDetector:
         px, py = float(pos[0]), float(pos[1])
         team = player_teams.get(possessor_id)
 
+        # --- Penalty area entry ---
         in_pa_now = self._point_in_penalty_area(px, py)
         was_in_pa = possessor_id in self._prev_in_zone["penalty_area"]
 
@@ -724,6 +800,7 @@ class EventsDetector:
                 data_exporter.add_event(event)
                 self._zone_cooldowns["penalty_area"][possessor_id] = frame_idx
 
+        # --- Final third entry ---
         in_ft_now = self._point_in_final_third(px, py)
         was_in_ft = possessor_id in self._prev_in_zone["final_third"]
 
@@ -754,6 +831,7 @@ class EventsDetector:
                 data_exporter.add_event(event)
                 self._zone_cooldowns["final_third"][possessor_id] = frame_idx
 
+        # Update previous-frame zone membership for edge detection
         if in_pa_now:
             self._prev_in_zone["penalty_area"].add(possessor_id)
         else:
@@ -764,6 +842,9 @@ class EventsDetector:
         else:
             self._prev_in_zone["final_third"].discard(possessor_id)
 
+    # ---------------------------------------------------------------------- #
+    # Helpers                                                                 #
+    # ---------------------------------------------------------------------- #
 
     @property
     def current_possessor_id(self) -> int | None:

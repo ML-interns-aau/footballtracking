@@ -33,8 +33,8 @@ class TypeResult:
     fp: int = 0
     fn: int = 0
     matched: list[MatchedPair] = field(default_factory=list)
-    false_positives: list[NormEvent] = field(default_factory=list)
-    false_negatives: list[NormEvent] = field(default_factory=list)
+    false_positives: list[NormEvent] = field(default_factory=list)  # ours, unmatched
+    false_negatives: list[NormEvent] = field(default_factory=list)  # truth, unmatched
 
     @property
     def precision(self) -> float:
@@ -84,13 +84,13 @@ def _optimal_pairs(cost: list[list[float]]) -> list[tuple[int, int]]:
     n_cols = len(cost[0]) if n_rows else 0
     if n_rows == 0 or n_cols == 0:
         return []
-    try:
+    try:  # optimal assignment
         import numpy as np
         from scipy.optimize import linear_sum_assignment
 
         rows, cols = linear_sum_assignment(np.array(cost))
         return list(zip(rows.tolist(), cols.tolist()))
-    except Exception:
+    except Exception:  # pragma: no cover - greedy fallback
         triples = sorted(
             ((cost[r][c], r, c) for r in range(n_rows) for c in range(n_cols)),
             key=lambda t: t[0],
@@ -122,6 +122,8 @@ def match_type(
     if not ours and not truth:
         return result
 
+    # Build a cost matrix; pairs outside tolerance (or disagreeing teams when
+    # team-aware) are made unselectable via an infinite cost.
     INF = float("inf")
     cost: list[list[float]] = []
     for o in ours:

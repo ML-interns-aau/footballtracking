@@ -88,6 +88,7 @@ def render_markdown(result: ValidationResult) -> str:
     )
     lines.append("")
 
+    # Detailed review lists for the manual video-comparison step.
     for t, r in result.per_type.items():
         if not r.false_positives and not r.false_negatives:
             continue
