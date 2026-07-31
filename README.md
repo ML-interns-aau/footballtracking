@@ -22,7 +22,6 @@ A Streamlit-based football analytics platform that turns raw match video : playe
 
 ---
 
-## Quick Start
 
 ### 1. Install dependencies
 
