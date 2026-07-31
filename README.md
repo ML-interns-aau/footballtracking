@@ -100,15 +100,38 @@ football_tracking_project/
 
 ## CLI Usage
 
+Run the full tracking pipeline against a video from the terminal (no
+Streamlit UI needed) and get all results written straight to
+`--output_dir`:
+
 ```bash
 python main.py --input data/raw/match.mp4 --output_dir results --max_frames 0
 ```
+
+This writes, directly under `--output_dir`:
+
+| File | Contents |
+|---|---|
+| `annotated_football_analysis.mp4` | Full video with bounding boxes, trails, HUD |
+| `tracking_output.csv` | Per-frame per-player tracking data |
+| `analytics.csv` / `analytics.json` | Possession, speed, and event analytics |
+| `player_summary.csv` | Per-player summary stats |
+| `possession_summary.csv` | Per-team possession breakdown |
+| `team_0_heatmap.png` / `team_1_heatmap.png` | Per-team position heatmaps |
+| `metadata.json` | Run metadata (video, model, timings) |
 
 | Argument | Default | Description |
 |---|---|---|
 | `--input` | required | Path to input video |
 | `--output_dir` | `results` | Directory for outputs |
 | `--max_frames` | `0` (all) | Limit frames processed (0 = full video) |
+| `--target_fps` | see `app/config.py` | Frame rate to process at (subsamples if lower than source) |
+| `--resize_width` | see `app/config.py` | Resize frame width before detection |
+| `--conf` / `--iou` / `--imgsz` | see `app/config.py` | YOLO detection thresholds/input size |
+| `--device` | auto | `cuda` or `cpu`; auto-detects if omitted |
+| `--model_path` | see `app/config.py` | Path to YOLO weights |
+| `--game_id` | auto-generated | Subfolder name under `--output_dir` for this run |
+| `--match-id` / `--home-team` / `--away-team` | placeholders | Metadata recorded in `metadata.json` |
 
 ---
 
@@ -126,22 +149,54 @@ python tools/extract_corner_snapshots.py \
     --input clip_1.mp4 --output_dir results/corner_snapshots \
     --model models/yolo11l.pt --ball_weights models/soccana_yolo11n.pt
 
-# Override an auto-detected frame if it looks wrong on ball_speed_debug.png:
+# Also dump annotated frames around the kick/contact for manual review:
+python tools/extract_corner_snapshots.py --input clip_1.mp4 --output_dir results/corner_snapshots \
+    --model models/yolo11l.pt --ball_weights models/soccana_yolo11n.pt \
+    --kick-window-frames 15 --contact-window-frames 15
+
+# Dump every frame of the clip, annotated:
+python tools/extract_corner_snapshots.py --input clip_1.mp4 --output_dir results/corner_snapshots \
+    --model models/yolo11l.pt --ball_weights models/soccana_yolo11n.pt --dump-all-frames
+
+# Override an auto-detected frame if it looks wrong on ball_speed_debug.png
+# (or after confirming the true frame from a --*-window-frames/--dump-all-frames dump):
 python tools/extract_corner_snapshots.py --input clip_1.mp4 \
     --kick_frame 42 --contact_frame 57
 ```
 
-Outputs `kick_frame_<N>.png`, `contact_frame_<M>.png`, a debug plot of
-ball speed vs. frame index, and `snapshot_metadata.json` with the
-thresholds and confidence used. A pass1+2 result cache
-(`.cache/pass12/`, git-ignored) skips re-running detection when only the
-event-timing parameters change, since detection is the expensive part
-by a wide margin.
+Outputs `<clip>_kick_snapshot.png`, `<clip>_first_contact_snapshot.png`
+(when contact resolves to an exact frame), a debug plot of ball speed vs.
+frame index, and `snapshot_metadata.json` with the thresholds, tiers, and
+confidence used. A pass1+2 result cache (`.cache/pass12/`, git-ignored)
+skips re-running detection when only the event-timing parameters change,
+since detection is the expensive part by a wide margin.
 
-Contact detection is only as good as the ball's visibility: if the ball
-goes untracked for a long stretch (fast flight, motion blur, or a
-crowded penalty box) and the true contact falls inside that gap, the
-tool reports `contact_frame: null` rather than guessing.
+**Contact detection is tiered**, never emitting a confident frame the
+evidence doesn't support:
+
+| Tier | Meaning | Output |
+|---|---|---|
+| 1 | Ball visible on both sides of the touch, no occlusion gap | exact frame, high confidence |
+| 2 | Ball visible before/after a short occlusion gap bracketing the touch | exact frame (gap start), medium confidence |
+| 3 | Ball undetectable through the touch (small/blurred, or a crowded box with no single clean signature) | `contact_frame: null`, plus a `contact_window` for manual confirmation |
+
+Kick detection can likewise abstain (`kick_frame: null`) if no sustained
+speed spike is found after the resting baseline, rather than guessing the
+loudest noise in the clip.
+
+Manual-review helpers, both git-ignored, saved alongside the snapshots:
+- `--kick-window-frames N` / `--contact-window-frames N` — dump N annotated
+  frames on either side of the kick/contact pick (or the Tier 3 window) into
+  `kick_window/` / `contact_window/`, for scrubbing by eye when a pick looks
+  off.
+- `--dump-all-frames` — annotate and save every frame of the clip into
+  `all_frames/`.
+
+If the ball is too small/distant to detect reliably near the corner arc,
+`--tile-ball-detection` (runs detection on overlapping crops instead of the
+full downscaled frame) and a lower `--ball-conf` can recover it — verify
+against `tools/validate.py` afterward, since lowering the threshold trades
+recall for false-positive risk.
 
 Validate against ground truth:
 
@@ -149,32 +204,3 @@ Validate against ground truth:
 python tools/validate.py
 ```
 
-Checks the auto-picked kick/contact frames against known-correct values
-for the bundled reference clips, within a ±3 frame tolerance.
-
----
-
-## Deployment
-
-### Streamlit Community Cloud
-
-1. Push to a public GitHub repository
-2. Go to [share.streamlit.io](https://share.streamlit.io) → New app
-3. Set **Main file path** to `dashboard/Home.py`
-4. Add model weights via Streamlit Secrets or a download script
-
-
-
----
-
-## Requirements
-
-- Python 3.10+
-- PyTorch 2.2+ (CUDA optional but recommended)
-- See `requirements.txt` for full list
-
----
-
-## License
-
-MIT

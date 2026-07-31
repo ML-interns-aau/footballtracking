@@ -139,27 +139,15 @@ class BallCandidateClusterer:
         self.late_frac = late_frac
         self.min_frames_for_decoy = min_frames_for_decoy
         self.static_spread_px = static_spread_px
-        # A decoy doesn't have to start in the first early_frac of the clip to be
-        # a fixture -- any object that sits still for a long stretch (regardless
-        # of when it starts) is very unlikely to be the ball, since the ball is
-        # only ever stationary briefly (pre-kick) or fleetingly (post-contact).
         self.min_span_frac_for_decoy = min_span_frac_for_decoy
-        # A single stray misdetection near a real resting-ball spot long after
-        # it stopped being there (a shadow flicker, a pitch marking briefly
-        # crossing the confidence threshold) can sit tens of frames away from
-        # every other detection in the cluster. Using raw min/max frame as
-        # first_frame/last_frame lets that one point drag the reported span
-        # (and "is this late" check) out arbitrarily far, condemning the whole
-        # cluster -- including genuine early frames that are the real ball.
-        # Trimming leading/trailing points that are isolated by more than this
-        # many frames from their nearest neighbor in the same cluster keeps
-        # span/lateness anchored to the cluster's actual dense presence.
         self.straggler_gap_frames = straggler_gap_frames
         self._clusters: dict[int, dict] = {}
         self._next_id = 0
         self.total_frames: int = 0
 
-    def add(self, frame_idx: int, comp_xy: tuple[float, float], confidence: float) -> int:
+    def add(
+        self, frame_idx: int, comp_xy: tuple[float, float], confidence: float, above_pitch: bool = False,
+    ) -> int:
         """Assigns a compensated ball observation to a cluster (creating one if
         none is close enough), returning that cluster's id."""
         self.total_frames = max(self.total_frames, frame_idx + 1)
@@ -176,7 +164,7 @@ class BallCandidateClusterer:
             best_id = self._next_id
             self._next_id += 1
             self._clusters[best_id] = {
-                "frames": [], "points": [], "confidences": [],
+                "frames": [], "points": [], "confidences": [], "above_pitch": [],
                 "sum_x": 0.0, "sum_y": 0.0, "count": 0,
             }
 
@@ -184,6 +172,7 @@ class BallCandidateClusterer:
         c["frames"].append(frame_idx)
         c["points"].append((cx, cy))
         c["confidences"].append(confidence)
+        c["above_pitch"].append(bool(above_pitch))
         c["sum_x"] += cx
         c["sum_y"] += cy
         c["count"] += 1
@@ -220,7 +209,13 @@ class BallCandidateClusterer:
 
             spans_early_and_late = eff_first <= self.early_frac * n and eff_last >= self.late_frac * n
             long_static_run = is_static and span >= self.min_span_frac_for_decoy * n
-            is_decoy = c["count"] >= self.min_frames_for_decoy and (spans_early_and_late or long_static_run)
+
+            above_pitch_frac = float(np.mean(c["above_pitch"])) if c["above_pitch"] else 0.0
+            static_above_pitch = is_static and above_pitch_frac >= 0.6
+
+            is_decoy = c["count"] >= self.min_frames_for_decoy and (
+                spans_early_and_late or long_static_run or static_above_pitch
+            )
 
             result[cid] = {
                 "centroid": centroid,
@@ -230,6 +225,7 @@ class BallCandidateClusterer:
                 "last_frame": last_frame,
                 "mean_confidence": float(np.mean(c["confidences"])),
                 "is_static": is_static,
+                "above_pitch_frac": above_pitch_frac,
                 "is_decoy": is_decoy,
             }
         return result
@@ -328,3 +324,100 @@ class CompensatedBallSmoother:
         if self._last_comp is not None:
             return self._last_comp[0], self._last_comp[1], True
         return 0.0, 0.0, True
+
+
+def ransac_ballistic_fit(
+    points: list[tuple[int, float, float]],
+    residual_thresh_px: float = 15.0,
+    min_inliers: int = 4,
+    n_trials: int = 500,
+    sample_size: int = 4,
+    rng_seed: int = 0,
+    min_y_range_px: float = 40.0,
+    min_total_range_px: float = 80.0,
+) -> dict:
+    """RANSAC fit of a per-axis quadratic (constant-acceleration) trajectory to
+    sparse, noisy post-kick ball candidates -- `points` is (frame_idx, x, y).
+
+    A single plain least-squares fit (as event_detector.py's older ballistic
+    corroboration used) is skewed by any false positive in the window. RANSAC
+    instead searches for the largest subset of points consistent with ONE
+    parabola; that subset is taken to be the true flight, and points that
+    don't fit it are outliers -- either false detections, or a point where the
+    ball has just been redirected by a genuine touch and no longer follows the
+    pre-touch arc.
+
+    Both axes are fit from the same sampled/inlier index set on every trial
+    (not two independent per-axis RANSAC runs), since a real flight point is
+    on-arc in x AND y together, not independently.
+
+    A larger inlier set isn't automatically the RIGHT one: a cluster of
+    slow-drifting false positives (a misclassified non-ball object crawling
+    across a few pixels a frame) can mutually fit a nearly-flat "parabola"
+    with very low residuals, out-voting the true, sparser, more dynamic flight
+    -- this is exactly what happened on testClip (RANSAC latched onto a
+    flat/degenerate fit and reported contact at frame 90 with high confidence,
+    confidently wrong). A genuine lofted corner-kick arc must show real
+    vertical range (gravity) and real overall displacement, so a fit whose
+    inliers barely move is rejected outright (coeffs=None) rather than
+    accepted -- the caller's job is then to say "no clean arc here", not to
+    invent one.
+
+    Returns {"coeffs": (cx, cy) or None, "t0": frame offset, "inlier_frames":
+    set[int], "residuals": {frame_idx: px_residual}} -- residuals are reported
+    for every input point (inlier or not) so a break in the arc (a point that
+    exists but is far from the fitted parabola) is visible to the caller.
+    coeffs is None both when no consensus was found AND when the best
+    consensus found was degenerate/flat.
+    """
+    n = len(points)
+    if n < sample_size:
+        return {"coeffs": None, "t0": 0.0, "inlier_frames": set(), "residuals": {}}
+
+    frames = np.array([p[0] for p in points], dtype=np.float64)
+    xs = np.array([p[1] for p in points], dtype=np.float64)
+    ys = np.array([p[2] for p in points], dtype=np.float64)
+    t0 = float(frames.min())
+    ts = frames - t0
+
+    def fit_quadratic(idx):
+        A = np.vstack([ts[idx] ** 2, ts[idx], np.ones(len(idx))]).T
+        cx = np.linalg.lstsq(A, xs[idx], rcond=None)[0]
+        cy = np.linalg.lstsq(A, ys[idx], rcond=None)[0]
+        return cx, cy
+
+    def residuals(cx, cy):
+        px = cx[0] * ts ** 2 + cx[1] * ts + cx[2]
+        py = cy[0] * ts ** 2 + cy[1] * ts + cy[2]
+        return np.hypot(xs - px, ys - py)
+
+    rng = np.random.default_rng(rng_seed)
+    best_inliers = np.zeros(n, dtype=bool)
+    best_coeffs = None
+    for _ in range(n_trials):
+        sample_idx = rng.choice(n, size=sample_size, replace=False)
+        try:
+            cx, cy = fit_quadratic(sample_idx)
+        except np.linalg.LinAlgError:
+            continue
+        res = residuals(cx, cy)
+        inliers = res <= residual_thresh_px
+        if inliers.sum() > best_inliers.sum():
+            best_inliers, best_coeffs = inliers, (cx, cy)
+
+    if best_coeffs is None or best_inliers.sum() < min_inliers:
+        return {"coeffs": None, "t0": t0, "inlier_frames": set(), "residuals": {}}
+
+    idx = np.where(best_inliers)[0]
+
+    inlier_xs, inlier_ys = xs[idx], ys[idx]
+    y_range = float(inlier_ys.max() - inlier_ys.min())
+    total_range = float(np.hypot(inlier_xs.max() - inlier_xs.min(), inlier_ys.max() - inlier_ys.min()))
+    if y_range < min_y_range_px or total_range < min_total_range_px:
+        return {"coeffs": None, "t0": t0, "inlier_frames": set(), "residuals": {}}
+
+    cx, cy = fit_quadratic(idx)
+    res = residuals(cx, cy)
+    inlier_frames = {int(frames[i]) for i in idx}
+    residual_by_frame = {int(frames[i]): float(res[i]) for i in range(n)}
+    return {"coeffs": (cx, cy), "t0": t0, "inlier_frames": inlier_frames, "residuals": residual_by_frame}
