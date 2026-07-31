@@ -16,15 +16,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# Ensure project root is on sys.path so src.* imports resolve from tools/
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.homography.pitch_mapping import PitchMapping
 from src.exporters.tracking_csv_builder import TrackingCSVBuilder
 
-# ---------------------------------------------------------------------------
-# Synthetic objects: [team_id, player_id, x0, y0, vx, vy]
-# ---------------------------------------------------------------------------
 
 _OBJECTS: list[list[float]] = [
     [0,   1,  100, 200,  2.0,  0.5],
@@ -35,14 +31,10 @@ _OBJECTS: list[list[float]] = [
     [32, 99,  520, 380,  5.0,  2.0],
 ]
 
-# Default homography — maps a 1920×1080 frame onto a 105×68 m pitch
 _DEFAULT_SRC_PTS = [[0, 1080], [1920, 1080], [1440, 324], [480, 324]]
 _DEFAULT_DST_PTS = [[0, 68],   [105, 68],    [105, 0],    [0, 0]]
 
 
-# ---------------------------------------------------------------------------
-# Core
-# ---------------------------------------------------------------------------
 
 def generate_detections(num_frames: int = 200, seed: int = 42) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
@@ -68,9 +60,6 @@ def generate_detections(num_frames: int = 200, seed: int = 42) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(

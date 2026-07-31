@@ -20,21 +20,17 @@ from pathlib import Path
 
 import pandas as pd
 
-# Ensure project root is on sys.path so src.* imports resolve from tools/
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.exporters.output_schema import (
     AnalyticsCSVColumns,
     OutputFiles,
-    PlayerSummaryCSVColumns,  # noqa: F401  (re-exported for callers)
-    PossessionSummaryCSVColumns,  # noqa: F401
+    PlayerSummaryCSVColumns,
+    PossessionSummaryCSVColumns,
     TrackingCSVColumns,
 )
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _map_team(team_str: str) -> int:
     t = str(team_str).lower()
@@ -58,9 +54,6 @@ def _read_resolution(video_path: Path) -> str:
     return "unknown"
 
 
-# ---------------------------------------------------------------------------
-# Core
-# ---------------------------------------------------------------------------
 
 def post_process(
     results_dir: str | Path,
@@ -95,7 +88,6 @@ def post_process(
     df["team_id"] = df[AnalyticsCSVColumns.TEAM].apply(_map_team)
     total_frames  = int(df[AnalyticsCSVColumns.FRAME].nunique()) if not df.empty else 0
 
-    # ── Player stats ──────────────────────────────────────────────────────────
     player_stats: list[dict] = []
     if not df.empty:
         for (obj_id, team_id), group in df.groupby(
@@ -114,7 +106,6 @@ def post_process(
             })
     player_df = pd.DataFrame(player_stats)
 
-    # ── Possession counts ─────────────────────────────────────────────────────
     poss_counts: dict[int, int] = {0: 0, 1: 0}
     if not df.empty and "class" in df.columns:
         ball_frames   = df[df["class"] == "ball"][["frame", "x_m", "y_m"]].copy()
@@ -145,7 +136,6 @@ def post_process(
             if n > 0:
                 player_df.loc[mask, "poss_pct"] = round(row["possession_pct"] / n, 2)
 
-    # ── Write CSVs ────────────────────────────────────────────────────────────
     player_df.to_csv(insights_dir / OutputFiles.PLAYER_SUMMARY,    index=False)
     poss_df.to_csv(  insights_dir / OutputFiles.POSSESSION_SUMMARY, index=False)
 
@@ -158,7 +148,6 @@ def post_process(
         if TrackingCSVColumns.CENTER_Y in track_df.columns: rename_map[TrackingCSVColumns.CENTER_Y] = "cy"
         track_df.rename(columns=rename_map).to_csv(insights_dir / "tracking_enriched.csv", index=False)
 
-    # ── Pipeline summary JSON ─────────────────────────────────────────────────
     resolution = _read_resolution(results_dir / OutputFiles.ANNOTATED_VIDEO)
     summary = {
         "video":             video_name,
@@ -180,9 +169,6 @@ def post_process(
     )
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
