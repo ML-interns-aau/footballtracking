@@ -2,8 +2,6 @@ import csv
 import json
 from pathlib import Path
 
-# Resolve the project root (two levels up from src/pipeline/) so that
-# events.json is always written to <project_root>/data/events.json.
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _DATA_DIR = _PROJECT_ROOT / "data"
 class DataExporter:
@@ -178,17 +176,12 @@ class DataExporter:
                 "ball": ball,
             })
         events_array = self.events
-        # Primary location: alongside analytics.json in the run output folder.
         events_path = self.events_path
         from src.exporters.output_schema import write_json_atomic
         write_json_atomic(events_path, convert_numpy(events_array))
-        # Backward-compatible mirror for legacy tooling expecting data/events.json.
         _DATA_DIR.mkdir(parents=True, exist_ok=True)
         write_json_atomic(_DATA_DIR / "events.json", convert_numpy(events_array))
         
-        # Events are emitted with a "type" key (e.g. "pass"); the legacy
-        # "event_type"/"PASS_COMPLETED" form is never produced, which made this
-        # count always 0. Count completed passes by the actual schema.
         total_passes = sum(1 for e in self.events if e.get("type") == "pass")
         final_data = {
             "match_info": self.match_info or {},

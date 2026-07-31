@@ -13,9 +13,6 @@ from pathlib import Path
 
 import requests
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
 
 DEFAULT_URL = (
     "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8m.pt"
@@ -23,9 +20,6 @@ DEFAULT_URL = (
 DEFAULT_OUTPUT = "yolo11m.pt"
 
 
-# ---------------------------------------------------------------------------
-# Core
-# ---------------------------------------------------------------------------
 
 def download_file(url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -54,9 +48,6 @@ def download_file(url: str, dest: Path) -> None:
     print(f"\nDownload complete: {dest}")
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Download a YOLO model weight file")

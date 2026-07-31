@@ -11,10 +11,8 @@ Usage:
 
 from __future__ import annotations
 
-# ── Standard library ──────────────────────────────────────────────────────────
 import argparse
 
-# ── Project — config ──────────────────────────────────────────────────────────
 from app.config import (
     DEFAULT_CONF,
     DEFAULT_IOU,
@@ -24,13 +22,9 @@ from app.config import (
     MODEL_PATH,
 )
 
-# ── Project — pipeline runner ─────────────────────────────────────────────────
 from src.pipeline_runner import FootballPipelineRunner
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 def main(args):
     runner = FootballPipelineRunner(args)

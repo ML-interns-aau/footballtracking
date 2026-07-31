@@ -82,7 +82,6 @@ class FootballPipelineRunner:
         if isinstance(device, str) and device.isdigit():
             device = int(device)
 
-        # ── Open video ────────────────────────────────────────────────────────────
         cap = cv2.VideoCapture(str(input_path))
         if not cap.isOpened():
             raise FileNotFoundError(f"Cannot open video: {input_path}")
@@ -116,7 +115,6 @@ class FootballPipelineRunner:
             flush=True,
         )
 
-        # ── Video writer ──────────────────────────────────────────────────────────
         out_video_path = resolver.annotated_video()
         fourcc = cv2.VideoWriter_fourcc(*"avc1")
         out = cv2.VideoWriter(str(out_video_path), fourcc, fps, (width, height))
@@ -132,7 +130,6 @@ class FootballPipelineRunner:
             from dashboard.config import MODEL_PATH as DASHBOARD_MODEL_PATH
             model_path = DASHBOARD_MODEL_PATH
 
-        # ── Component initialisation ──────────────────────────────────────────────
         detector = FootballDetector(
             model_path=model_path,
             conf=CONFIG.get("detection.confidence_threshold", 0.30),
@@ -211,7 +208,6 @@ class FootballPipelineRunner:
         possession_builder = PossessionSummaryCSVBuilder()
         print("[PHASE] tracking and export components initialized", flush=True)
 
-        # ── Frame loop ────────────────────────────────────────────────────────────
         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         source_frame_idx    = 0
         processed_frame_idx = 0
@@ -377,7 +373,6 @@ class FootballPipelineRunner:
         cap.release()
         out.release()
 
-        # ── Finalise outputs ──────────────────────────────────────────────────────
         data_exporter.finalize()
         heatmap_analyzer.save_team_heatmap(0, output_path=str(resolver.heatmap_path(0)))
         heatmap_analyzer.save_team_heatmap(1, output_path=str(resolver.heatmap_path(1)))

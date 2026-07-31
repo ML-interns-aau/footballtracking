@@ -17,23 +17,17 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# ---------------------------------------------------------------------------
-# Synthetic objects: [team_id, player_id, x0, y0, vx, vy]
-# ---------------------------------------------------------------------------
 
 _OBJECTS: list[list[float]] = [
     [0,   1,  100, 200,  2.0,  0.5],
     [0,   2,  300, 180,  1.5,  0.2],
     [1,   3,  800, 190,  1.0,  0.3],
     [1,   4,  950, 210,  0.8, -0.1],
-    [2,   5,  530, 300,  0.5,  0.1],   # team_id=2 → referee
-    [32, 99,  520, 380,  5.0,  2.0],   # class_id=32 → ball
+    [2,   5,  530, 300,  0.5,  0.1],
+    [32, 99,  520, 380,  5.0,  2.0],
 ]
 
 
-# ---------------------------------------------------------------------------
-# Core
-# ---------------------------------------------------------------------------
 
 def generate_data(num_frames: int = 200, seed: int = 42) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
@@ -59,9 +53,6 @@ def generate_data(num_frames: int = 200, seed: int = 42) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Generate synthetic detection CSV")

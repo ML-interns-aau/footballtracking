@@ -22,12 +22,11 @@ import argparse
 import sys
 from pathlib import Path
 
-# Allow running as a plain script (python tools/validate_against_statsbomb.py).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.validation.events import RunSpec, validate_from_config  # noqa: E402
-from src.validation.events.harness import validate_run  # noqa: E402
-from src.validation.events.matching import ValidationResult  # noqa: E402
+from src.validation.events import RunSpec, validate_from_config
+from src.validation.events.harness import validate_run
+from src.validation.events.matching import ValidationResult
 
 
 def _print_summary(result: ValidationResult) -> None:

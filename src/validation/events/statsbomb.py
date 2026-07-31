@@ -94,12 +94,10 @@ def normalize_statsbomb_events(
 
         if type_name == "Pass":
             pass_obj = ev.get("pass") or {}
-            completed = "outcome" not in pass_obj  # StatsBomb: outcome present => not completed
+            completed = "outcome" not in pass_obj
             if pass_obj.get("cross"):
                 canonical = "cross"
             elif pass_obj.get("switch") and completed:
-                # A switch is also a completed pass; emit both so it scores
-                # against our pass detector and our switch_of_play detector.
                 x, y = _location(ev, pitch_width_m, pitch_height_m)
                 side = _team_side(ev, team_map)
                 t = _match_time_s(ev)
@@ -163,8 +161,8 @@ def fetch_statsbomb_events(
     :func:`load_statsbomb_events` is the supported default path.
     """
     try:
-        from statsbombpy import sb  # type: ignore
-    except ImportError as exc:  # pragma: no cover - optional dependency
+        from statsbombpy import sb
+    except ImportError as exc:
         raise ImportError(
             "fetch_statsbomb_events requires the optional 'statsbombpy' package "
             "(pip install statsbombpy). Alternatively download the match's "

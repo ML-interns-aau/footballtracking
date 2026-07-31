@@ -30,11 +30,9 @@ from ai.llm_provider import (
 from ai.match_report import generate_match_report
 
 __all__ = [
-    # Data
     "MatchContext",
     "build_match_context",
     "load_match_data",
-    # Provider abstraction
     "LLMProvider",
     "LLMResponse",
     "LLMConfigError",
@@ -46,7 +44,6 @@ __all__ = [
     "configured_providers",
     "provider_configured",
     "estimate_cost",
-    # Concrete providers
     "GeminiClient",
     "GeminiConfigError",
     "GeminiError",
@@ -54,7 +51,6 @@ __all__ = [
     "GroqConfigError",
     "GroqError",
     "DEFAULT_MODEL",
-    # Tasks
     "generate_match_report",
     "answer_question",
 ]

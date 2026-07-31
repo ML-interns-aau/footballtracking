@@ -18,7 +18,6 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-# ── Errors ──────────────────────────────────────────────────────────────────
 
 
 class LLMConfigError(RuntimeError):
@@ -29,7 +28,6 @@ class LLMError(RuntimeError):
     """A provider API call failed at request time."""
 
 
-# ── Response ────────────────────────────────────────────────────────────────
 
 
 @dataclass
@@ -52,17 +50,10 @@ class LLMResponse:
         return (self.input_tokens or 0) + (self.output_tokens or 0)
 
 
-# ── Pricing ─────────────────────────────────────────────────────────────────
-#
-# USD per 1,000,000 tokens as (input_rate, output_rate). These are published
-# list prices and are indicative only (collected early 2026) — they drift, and
-# free tiers/discounts are not reflected. Cost figures in the UI are estimates.
 _PRICING: dict[str, tuple[float, float]] = {
-    # Google Gemini
     "gemini-2.5-flash": (0.30, 2.50),
     "gemini-2.5-flash-lite": (0.10, 0.40),
     "gemini-2.0-flash": (0.10, 0.40),
-    # Groq (open models, served fast)
     "llama-3.3-70b-versatile": (0.59, 0.79),
     "llama-3.1-8b-instant": (0.05, 0.08),
     "openai/gpt-oss-20b": (0.10, 0.50),
@@ -80,7 +71,6 @@ def estimate_cost(
     return (input_tokens * in_rate + output_tokens * out_rate) / 1_000_000
 
 
-# ── Shared key handling ───────────────────────────────────────────────────────
 
 _dotenv_loaded = False
 
@@ -114,15 +104,12 @@ def has_api_key(env_key: str) -> bool:
     return bool(os.environ.get(env_key, "").strip())
 
 
-# ── Base provider ─────────────────────────────────────────────────────────────
 
 
 class LLMProvider(ABC):
     """A configured client for one model. Construct once and reuse."""
 
-    #: stable id used in the registry (e.g. "gemini")
     name: str = ""
-    #: human-readable name shown in the UI (e.g. "Google Gemini")
     label: str = ""
 
     def __init__(self, model: str):
@@ -159,7 +146,6 @@ class LLMProvider(ABC):
         )
 
 
-# ── Registry ──────────────────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True)
