@@ -24,16 +24,8 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 
-# ---------------------------------------------------------------------------
-# Canonical event types
-# ---------------------------------------------------------------------------
-# Types we score in the headline metrics.  These map cleanly and unambiguously
-# between our detector and StatsBomb, so precision/recall on them is trustworthy.
 SCORED_TYPES: tuple[str, ...] = ("pass", "cross", "interception", "recovery")
 
-# Types we emit that only map to *derived* StatsBomb ground truth (inferred from
-# event locations rather than a first-class StatsBomb type).  Reported as
-# diagnostics, kept out of the headline numbers to avoid misleading accuracy.
 DIAGNOSTIC_TYPES: tuple[str, ...] = (
     "switch_of_play",
     "skill_move",
@@ -43,7 +35,6 @@ DIAGNOSTIC_TYPES: tuple[str, ...] = (
 
 ALL_TYPES: tuple[str, ...] = SCORED_TYPES + DIAGNOSTIC_TYPES
 
-# Canonical team sides.
 HOME = "home"
 AWAY = "away"
 
@@ -86,7 +77,6 @@ class NormEvent:
         return f"{total // 60:02d}:{total % 60:02d}"
 
 
-# StatsBomb pitch dimensions (constant across all open-data matches).
 STATSBOMB_PITCH_X = 120.0
 STATSBOMB_PITCH_Y = 80.0
 
