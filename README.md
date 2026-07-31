@@ -1,6 +1,6 @@
 # Football Tracker — Match Video Analytics Pipeline
 
-A Streamlit-based football analytics platform that turns raw match video into structured data: player tracking, team classification, possession analysis, speed estimation, and annotated video output.
+A Streamlit-based football analytics platform that turns raw match video : player tracking, team classification, possession analysis, speed estimation, and annotated video output.
 
 ---
 
