@@ -1,4 +1,3 @@
-# app/pages/analysis_page.py
 """
 Analysis Page — fully automated pipeline.
 
@@ -37,12 +36,10 @@ def _pipeline_command():
     main_py = project_root / "main.py"
     input_video = st.session_state.get("processed_video") or st.session_state.get("uploaded_video", "")
     
-    # Create game-specific folder
     video_name = os.path.basename(input_video)
     game_id = create_game_folder(video_name)
     out_dir = Path(INSIGHTS_DIR) / game_id
     
-    # Store game_id in session state for results page
     st.session_state["current_game_id"] = game_id
 
     args = [
@@ -106,7 +103,6 @@ def _run_pipeline_with_logs(status, progress, log_placeholder, total_estimated: 
     status.info("Starting pipeline...")
     progress.progress(0, text="Preparing pipeline...")
     
-    # Update game status to processing
     update_game_status(game_id, "Processing", started=True)
 
     log_lines = ["$ " + " ".join(command)]
@@ -161,14 +157,12 @@ def _run_pipeline_with_logs(status, progress, log_placeholder, total_estimated: 
 
     return_code = process.wait()
     if return_code != 0:
-        # Update game status to failed
         update_game_status(game_id, "Failed", error=f"Pipeline exited with code {return_code}")
         raise RuntimeError(f"Pipeline exited with code {return_code}")
 
     progress.progress(1.0, text="Pipeline complete.")
     status.success("Pipeline complete.")
     
-    # Update game status to completed
     out_video = out_dir / "annotated_football_analysis.mp4"
     update_game_status(game_id, "Completed", 
                       output_video=str(out_video) if out_video.exists() else None,
@@ -192,7 +186,6 @@ def render():
     if analysis_done:
         done_up_to = 3
 
-    # render_pipeline(done_up_to=done_up_to)
     st.markdown("---")
 
     raw_video = st.session_state.get("uploaded_video")
@@ -212,7 +205,6 @@ def render():
             nav_button("Go to Preprocess", "Preprocess")
         return
 
-    # ── Show what will be processed ──────────────────────────────────────────
     st.markdown("##### Input")
     c1, c2 = st.columns([2, 1])
     with c1:
@@ -243,7 +235,6 @@ def render():
         with st.expander("Preview"):
             st.video(raw_video)
 
-    # ── GPU check ────────────────────────────────────────────────────────────
     try:
         import torch
         has_gpu = torch.cuda.is_available()
@@ -356,7 +347,6 @@ def render():
     elif device_choice.startswith("GPU"):
         device_value = 0
 
-    # Read preprocessing settings (set by Preprocess page)
     st.session_state.analysis_target_fps = st.session_state.get("target_fps", DEFAULT_TARGET_FPS)
     st.session_state.analysis_resize_width = st.session_state.get("resize_width", DEFAULT_RESIZE_W)
     st.session_state.analysis_conf = conf
@@ -370,7 +360,6 @@ def render():
 
     estimated_frames = _estimate_processed_frames(total, source_fps)
 
-    # ── Model check ──────────────────────────────────────────────────────────
     if not os.path.exists(MODEL_PATH):
         st.error(
             "Model weights not found. "
@@ -378,7 +367,6 @@ def render():
         )
         return
 
-    # ── Run button ───────────────────────────────────────────────────────────
     st.markdown("---")
 
     if analysis_done:
@@ -405,7 +393,6 @@ def render():
                                         f"{result.get('replay_frames_skipped', 0):,}"),
                             unsafe_allow_html=True)
 
-        # top duplicate buttons removed (use bottom navigation controls instead)
 
     else:
         st.markdown(f"""
@@ -448,7 +435,7 @@ def render():
                 st.session_state.analysis_done = True
                 st.session_state.analysis_results = result
                 st.session_state.tracked_video = result.get("output_video")
-                st.session_state.processed_video = raw_video  # Mark preprocessing as done
+                st.session_state.processed_video = raw_video
 
                 st.success("Pipeline complete. Redirecting to results...")
                 st.session_state.page = "Results"
@@ -459,14 +446,12 @@ def render():
                 import traceback
                 st.code(traceback.format_exc())
 
-    # Navigation (bottom): Back | Re-run | View Results
     st.markdown("---")
     left, center, right = st.columns([1, 1, 1])
     with left:
         nav_button("Back to Upload", "Upload", key="an_back")
 
     with center:
-        # Re-run is only enabled when an analysis has previously completed
         if analysis_done:
             if st.button("Re-run Pipeline", key="an_rerun", width='stretch'):
                 st.session_state.analysis_done = False
@@ -481,7 +466,6 @@ def render():
             )
 
     with right:
-        # View Results is only enabled when analysis is complete
         if analysis_done:
             nav_button("View Results", "Results", key="an_next")
         else:

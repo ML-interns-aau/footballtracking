@@ -1,4 +1,3 @@
-# app/pages/ai_analyst_page.py
 """AI Analyst Page — multi-provider match report and grounded chat assistant.
 
 Consumes the existing pipeline outputs for a selected game and exposes three
@@ -63,7 +62,6 @@ def _load_context(game_dir: str, game_id: str, _signature: float):
     return build_match_context(game_dir, game_id)
 
 
-# ── Formatting helpers ────────────────────────────────────────────────────────
 
 def _fmt_cost(cost) -> str:
     if cost is None:
@@ -94,14 +92,12 @@ def _render_meta(resp):
     )
 
 
-# ── Provider selection ────────────────────────────────────────────────────────
 
 def _provider_controls():
     """Render the provider + model selectors. Returns (provider, model, configured)."""
     specs = list_specs()
     names = [s.name for s in specs]
 
-    # Default to the first configured provider, else the first listed.
     default_idx = 0
     for i, s in enumerate(specs):
         if provider_configured(s.name):
@@ -160,14 +156,12 @@ def _resolve_client(provider: str, model: str):
         return None
 
 
-# ── Report tab ────────────────────────────────────────────────────────────────
 
 def _render_report_tab(context, game_id: str, provider: str, model: str, configured: bool):
     if not context.has_data:
         st.info("No processed match data found for this game. Run the analysis pipeline first.")
         return
 
-    # Cache the report per (game, provider, model) so switching providers keeps each result.
     report_key = f"ai_report_{game_id}_{provider}_{model}"
     existing = st.session_state.get(report_key)
 
@@ -209,7 +203,6 @@ def _render_report_tab(context, game_id: str, provider: str, model: str, configu
                    "momentum, and commentary — built only from this match's data.")
 
 
-# ── Assistant tab ─────────────────────────────────────────────────────────────
 
 def _render_assistant_tab(context, game_id: str, provider: str, model: str, configured: bool):
     if not context.has_data:
@@ -290,7 +283,6 @@ def _render_assistant_tab(context, game_id: str, provider: str, model: str, conf
     st.rerun()
 
 
-# ── Comparison tab ────────────────────────────────────────────────────────────
 
 def _render_compare_tab(context, game_id: str):
     if not context.has_data:
@@ -328,7 +320,7 @@ def _render_compare_tab(context, game_id: str):
         st.warning("Enter a question to compare.")
         return
 
-    results = []  # (spec, response_or_None, error_or_None)
+    results = []
     progress = st.progress(0.0)
     for i, spec in enumerate(configured):
         with st.spinner(f"Running {spec.label} ({spec.default_model})..."):
@@ -375,7 +367,6 @@ def _render_comparison_results(results):
     st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
 
     if ok:
-        # Highlight the fastest and cheapest, when measurable.
         fastest = min(ok, key=lambda r: r[1].latency_s)
         st.caption(f"Fastest: {fastest[1].label} at {fastest[1].latency_s:.1f}s.")
         priced = [(s, r) for s, r in ok if r.cost_usd is not None]
@@ -394,7 +385,6 @@ def _render_comparison_results(results):
                 st.error(err)
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
 
 def render():
     page_header("AI Analyst", "Multi-provider match reports and a grounded Q&A assistant.")

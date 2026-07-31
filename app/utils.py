@@ -1,4 +1,3 @@
-# app/utils.py
 """Shared UI — navbar, theme, helpers."""
 
 from __future__ import annotations
@@ -297,15 +296,12 @@ def render_navbar():
         f'<span class="ft-dot {"ft-dot-on" if has_analysis else "ft-dot-off"}" title="Analysis"></span>'
     )
 
-    # Open the navbar div
     st.markdown(f"""
     <div class="ft-nav">
         <div class="ft-nav-brand">Football<em>Tracker</em></div>
         <div class="ft-nav-links">
     """, unsafe_allow_html=True)
 
-    # Nav buttons — rendered inside the HTML div via Streamlit columns
-    # We use a single-row columns layout that sits inside the flex container
     nav_cols = st.columns(len(NAV_PAGES))
     for col, name in zip(nav_cols, NAV_PAGES):
         with col:
@@ -315,7 +311,6 @@ def render_navbar():
                 st.query_params["page"] = name
                 st.rerun()
 
-    # Close navbar div + dots
     st.markdown(f"""
         </div>
         <div class="ft-nav-dots">{dots}</div>
