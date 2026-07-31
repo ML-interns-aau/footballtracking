@@ -53,7 +53,6 @@ def test_player_mask_excludes_region():
     frames = _synthetic_pan_frames(shift, size=200)
     est = CameraMotionEstimator()
     h, w = frames[0].shape[:2]
-    # Mask out the whole frame except a 1px sliver -> should degrade to no-motion.
     dx, dy, M = est.estimate(frames[0], frames[1], player_boxes=[(0, 0, w, h - 1)])
     assert (dx, dy, M) == (0.0, 0.0, None)
     print("[OK] player_boxes masking removes feature candidates as expected")
@@ -70,7 +69,7 @@ def test_clip1_pan_shape():
     assert ok, "could not read first frame of clip_1.mp4"
     prev_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    magnitudes = [0.0]  # index 0 = frame 0, no predecessor
+    magnitudes = [0.0]
     idx = 1
     while True:
         ok, frame = cap.read()
